@@ -14,6 +14,8 @@ RevitCortex consists of:
 
 The Revit bridge is local to the workstation. Some optional integrations can perform outbound HTTPS requests when explicitly configured and invoked.
 
+The upstream experimental **Premium / License & Account** entitlement subsystem is not included in this fork. This does not alter the project's MIT software license in `LICENSE`.
+
 ---
 
 ## Local Revit bridge
@@ -65,9 +67,11 @@ Before custom C# runs, the following gates remain active:
 
 1. `EnableCodeExecution` must be explicitly enabled.
 2. The code must pass sandbox validation.
-3. Router permission/read-only/license rules still apply.
+3. Router permission, disabled-tool and user-selected read-only rules still apply.
 4. A critical confirmation decision is required in Revit.
 5. The invocation is written to the audit trail.
+
+There is no Premium activation, expiry or license-based read-only gate in this fork.
 
 The tool is intended for Revit API operations not adequately covered by dedicated tools. Dedicated RevitCortex tools should be preferred.
 
@@ -114,7 +118,7 @@ When **Allow auto-run** is enabled, the Yes action displays a visible **10-secon
 - does not write a permanent trust flag to `settings.json`;
 - does not bypass sandbox validation;
 - does not bypass `EnableCodeExecution`;
-- does not bypass read-only/router/license checks;
+- does not bypass user-selected read-only or disabled-tool restrictions;
 - does not disable audit logging.
 
 It automates only the final critical approval step after a visible delay.
@@ -170,6 +174,12 @@ Do not add raw model data, document paths, user credentials or arbitrary tool in
 
 ---
 
+## Diagnostic reports
+
+The **Diagnostic Report** ribbon action creates a local ZIP and opens it in Explorer. The fork does not automatically email the upstream author or upload the report.
+
+---
+
 ## Automatic updates
 
 The **upstream automatic update channel is disabled in this fork**.
@@ -205,7 +215,7 @@ When changing the plugin or adding tools, verify that:
 - transaction failures return structured errors;
 - localhost services are not accidentally widened to public network interfaces;
 - outbound integrations are explicit and documented;
-- the fork does not silently restore the upstream update channel.
+- the fork does not silently restore the upstream update channel or Premium entitlement gate.
 
 ---
 
