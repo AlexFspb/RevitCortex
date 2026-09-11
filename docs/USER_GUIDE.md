@@ -4,6 +4,8 @@
 >
 > The exact MCP tool count is intentionally not hard-coded in this guide. The current executable tool catalog is defined by the C# MCP wrappers and `tool-schemas.txt`.
 
+This is an unofficial, independently maintained fork of `LuDattilo/RevitCortex`. The upstream experimental Premium/License & Account subsystem is not part of this fork. The upstream MIT software license remains unchanged in `LICENSE`.
+
 ## Contents
 
 1. [Quick start](#quick-start)
@@ -127,9 +129,11 @@ Before a script can execute:
 
 1. **Custom C# execution must be enabled** in **Settings → Tools**.
 2. The script must pass the RevitCortex sandbox validation.
-3. Router permissions, read-only mode and other gates remain active.
+3. Router permissions, user-selected read-only mode and disabled-tool settings remain active.
 4. Revit shows a **critical confirmation window**.
 5. The invocation is recorded in the local audit trail.
+
+There is no Premium activation/license gate in this fork.
 
 Available script globals in Revit 2026:
 
@@ -176,8 +180,8 @@ Auto-run changes only the final critical approval step. It does **not** disable:
 
 - `EnableCodeExecution`;
 - sandbox validation;
-- read-only enforcement;
-- router/license checks;
+- user-selected read-only mode;
+- disabled-tool restrictions;
 - audit logging.
 
 ---
@@ -188,9 +192,9 @@ Open **RevitCortex → Settings**.
 
 ### General
 
-The General page includes the current connection state, server port, log level, read-only mode, telemetry/report settings and version information.
+The General page includes the current connection state, server port, log level, read-only mode, telemetry/diagnostic-report settings and version information.
 
-This fork is labelled for **Revit 2026**.
+This fork is labelled for **Revit 2026**. There is no **License & Account** page or Premium activation flow.
 
 ### Tools
 
@@ -294,6 +298,10 @@ That is the normal critical-confirmation behavior. If you intentionally want han
 ### Auto-run should stop
 
 Uncheck **Allow auto-run** in a critical confirmation dialog, or restart Revit. The preference is session-only.
+
+### Diagnostic report
+
+The **Diagnostic Report** ribbon action creates a ZIP locally and opens it in Explorer. It does not automatically email or upload the report.
 
 ### Automatic update banner is absent
 
