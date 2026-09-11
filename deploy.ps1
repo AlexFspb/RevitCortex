@@ -1,11 +1,13 @@
 param(
+    [ValidateSet("2026")]
+    [string]$RevitVersion = "2026",
     [ValidateSet("Debug","Release")]
     [string]$Config = "Debug"
 )
 
+# RevitCortex fork deployment: Autodesk Revit 2026 only.
 $ErrorActionPreference = "Stop"
 $RepoRoot = $PSScriptRoot
-$RevitVersion = "2026"
 $Configuration = "$Config R26"
 $PublishDir = Join-Path $RepoRoot "publish\R26"
 $AddInsDir = "C:\ProgramData\Autodesk\Revit\Addins\2026"
@@ -33,11 +35,11 @@ if ($orphans) {
 
 if (Test-Path $PublishDir) { Remove-Item $PublishDir -Recurse -Force }
 
-Write-Host "`nPublishing Plugin..." -ForegroundColor Yellow
+Write-Host "`nPublishing Plugin for Revit 2026..." -ForegroundColor Yellow
 dotnet publish -c "$Configuration" "$RepoRoot\src\RevitCortex.Plugin\RevitCortex.Plugin.csproj" -o $PublishDir --no-self-contained
 if ($LASTEXITCODE -ne 0) { throw "Plugin publish failed" }
 
-Write-Host "Publishing Tools..." -ForegroundColor Yellow
+Write-Host "Publishing Tools for Revit 2026..." -ForegroundColor Yellow
 dotnet publish -c "$Configuration" "$RepoRoot\src\RevitCortex.Tools\RevitCortex.Tools.csproj" -o $PublishDir --no-self-contained
 if ($LASTEXITCODE -ne 0) { throw "Tools publish failed" }
 
@@ -50,8 +52,6 @@ if (Test-Path $userAddinManifest) { Remove-Item $userAddinManifest -Force }
 
 if (Test-Path $TargetDir) { Remove-Item $TargetDir -Recurse -Force }
 New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
-
-Write-Host "Copying files..." -ForegroundColor Yellow
 Copy-Item "$PublishDir\*" $TargetDir -Recurse -Force
 
 $AddinSource = Join-Path $RepoRoot "src\RevitCortex.Plugin\RevitCortex.addin"
