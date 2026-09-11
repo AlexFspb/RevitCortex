@@ -8,6 +8,8 @@ This fork supports **Autodesk Revit 2026 only** and targets **.NET 8**.
 
 Do not use or recommend legacy R23/R24/R25/R27 build matrices for this fork.
 
+The upstream experimental **Premium / License & Account** entitlement subsystem is not part of this fork. The upstream MIT software license remains unchanged in `LICENSE`.
+
 ## Runtime flow
 
 ```text
@@ -68,7 +70,8 @@ For this fork:
 - Roslyn execution path only;
 - `EnableCodeExecution` must be enabled;
 - sandbox validation remains mandatory;
-- read-only/router/license rules remain active;
+- user-selected read-only mode and disabled-tool restrictions remain active;
+- there is no Premium activation/license gate;
 - each execution is audited;
 - critical confirmation happens in Revit before execution.
 
@@ -93,7 +96,11 @@ The Revit 2026 fork uses a dedicated critical confirmation window for custom C# 
 - The user can still click Yes or No while the countdown runs.
 - Auto-run is stored only in process memory and resets when Revit closes.
 
-Auto-run does not disable sandboxing, auditing, read-only mode or code-execution permissions.
+Auto-run does not disable sandboxing, auditing, read-only mode, disabled-tool restrictions or code-execution permissions.
+
+## Diagnostic reports
+
+The ribbon **Diagnostic Report** action creates a local ZIP and opens it in Explorer. It does not automatically email the upstream author or upload the report.
 
 ## Build commands
 
@@ -140,7 +147,7 @@ Use `ai-skills/revitcortex/SKILL.md` as the router for focused references. Fork-
 
 ## Source precedence
 
-Some large documents under `docs/` and `WORKFLOWS.md` originated upstream and may contain historical multi-version examples. If a legacy version/build statement conflicts with the current fork behavior, use this precedence:
+Some large documents under `docs/` and `WORKFLOWS.md` originated upstream and may contain historical multi-version examples. If a legacy version/build/access statement conflicts with the current fork behavior, use this precedence:
 
 1. current source code / project files;
 2. `AGENTS.md`;
