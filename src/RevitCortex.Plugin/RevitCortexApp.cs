@@ -33,16 +33,8 @@ public class RevitCortexApp : IExternalApplication
 
     public static RevitCortexApp? Instance { get; private set; }
 
-    /// <summary>
-    /// Fired on the calling thread whenever the server starts, stops, or crashes.
-    /// Subscribers must marshal to the UI thread themselves if needed.
-    /// </summary>
     public event Action? ServiceStateChanged;
 
-    /// <summary>
-    /// Returns true only if the socket service flag is set AND a live TCP
-    /// connection to localhost:port succeeds.
-    /// </summary>
     public bool IsServiceRunning
     {
         get
@@ -71,8 +63,6 @@ public class RevitCortexApp : IExternalApplication
     {
         Instance = this;
 
-        // Revit 2026 uses .NET 8. Roslyn (send_code_to_revit) needs Microsoft.CodeAnalysis
-        // plus System.Collections.Immutable / System.Reflection.Metadata dependencies.
         AppDomain.CurrentDomain.AssemblyResolve += ResolveBundledDependency;
 
         try
@@ -92,20 +82,13 @@ public class RevitCortexApp : IExternalApplication
 
             Telemetry.TelemetryBootstrap.Init(application);
 
-            // This fork has no Premium/account license gate. Runtime access is controlled
-            // only by the explicit user settings (read-only mode, disabled tools, and the
-            // send_code_to_revit safety settings/confirmations).
             _router = new CortexRouter(_session, analyzer, auditLogger: auditLogger,
                 errorReporter: Telemetry.TelemetryBootstrap.Reporter);
 
             var toolsAssembly = LoadToolsAssembly();
             if (toolsAssembly != null)
-            {
                 _router.RegisterToolsFromAssembly(toolsAssembly);
-            }
 
-            // A few tools live in the Plugin assembly because they depend on packages
-            // referenced by the Plugin rather than the Tools project.
             _router.RegisterToolsFromAssembly(Assembly.GetExecutingAssembly());
 
             var executionHandler = new ToolExecutionHandler(auditLogger);
@@ -340,19 +323,15 @@ public class RevitCortexApp : IExternalApplication
         panel.AddItem(powerBiBtn);
 
         var supportBtn = new PushButtonData(
-            "ID_CORTEX_SUPPORT", "Send log\r\nto support",
+            "ID_CORTEX_SUPPORT", "Diagnostic\r\nReport",
             assemblyLocation, "RevitCortex.Plugin.Commands.SendSupportReport");
         supportBtn.ToolTip = "Create a RevitCortex 2026 diagnostic report";
         supportBtn.LongDescription =
-            "Collects recent audit logs, token-usage log, settings, and the most recent " +
-            "Revit journal into a ZIP on the desktop, then opens a pre-filled Outlook " +
-            "message. Review the package and message before sending.";
+            "Collects diagnostic logs, settings and the recent Revit journal into a local ZIP " +
+            "report and opens it in Explorer. Nothing is uploaded or emailed automatically.";
         supportBtn.Image = IconFactory.CreateSupportIcon(16);
         supportBtn.LargeImage = IconFactory.CreateSupportIcon(32);
         panel.AddItem(supportBtn);
-
-        // No License & Account button in this fork. The upstream Premium licensing
-        // subsystem is intentionally not part of the Revit 2026 fork runtime.
     }
 
     private void OnDocumentOpened(object? sender, DocumentOpenedEventArgs args)
@@ -569,10 +548,6 @@ public class RevitCortexApp : IExternalApplication
         }
     }
 
-    /// <summary>
-    /// Resolves Roslyn and its .NET 8 dependencies from the plugin folder.
-    /// Scoped to the Roslyn dependency graph so it never hijacks Revit or other add-ins.
-    /// </summary>
     private static Assembly? ResolveBundledDependency(object? sender, ResolveEventArgs args)
     {
         var requested = new AssemblyName(args.Name).Name;
