@@ -19,13 +19,14 @@ builder.Services
             Version = "2.0.0"
         };
         options.ServerInstructions =
-            "RevitCortex exposes hundreds of dedicated Revit tools. ALWAYS prefer the dedicated tool that matches the task " +
+            "This RevitCortex fork targets Autodesk Revit 2026. Prefer the dedicated Revit tool that matches the task " +
             "(parameters, filtering/queries, model statistics, views, schedules, tags, dimensions, rebar, steel, IFC, Power BI). " +
-            "Destructive tools accept a dryRun option — preview before committing. " +
-            "send_code_to_revit is a LAST RESORT: never select it autonomously. Escalate to it only when no dedicated tool covers " +
-            "the operation (exotic geometry creation, read-only inspection of an uncovered Revit API, or a one-off operation no " +
-            "dedicated tool covers) — never for modal family editing (Document.EditFamily deadlocks from the external-event context) " +
-            "— and only after proposing the dedicated-tool alternative to the user and obtaining their explicit consent.";
+            "For destructive tools, use dryRun/preview first when the tool supports it. " +
+            "send_code_to_revit is a LAST RESORT: do not select it autonomously when a dedicated tool covers the operation. " +
+            "Use custom C# only for an operation that is genuinely uncovered, after proposing the dedicated-tool alternative and " +
+            "obtaining explicit user consent. Never use Document.EditFamily from the external-event execution context because modal " +
+            "family editing can deadlock the request. Custom C# remains gated by settings, sandbox validation, audit logging and a " +
+            "critical Revit confirmation. The user may explicitly enable the fork's session-only 10-second auto-run countdown in that dialog.";
     })
     .WithStdioServerTransport()
     .WithToolsFromAssembly();
