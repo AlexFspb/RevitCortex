@@ -35,13 +35,8 @@ public partial class GeneralSettingsPage : Page
         LoadVersionInfo();
         RefreshConnectionStatus();
         RefreshUpdateBanner();
-        // The update check runs once at plugin startup on a background thread;
-        // when the user opens Settings it may or may not have completed yet.
-        // Re-check every second for ~10 s to catch the late reply, then stop.
         StartUpdateBannerPolling();
 
-        // Subscribe to real-time server state changes so the status banner
-        // updates immediately when the user clicks Cortex Switch.
         if (RevitCortexApp.Instance != null)
             RevitCortexApp.Instance.ServiceStateChanged += OnServiceStateChanged;
 
@@ -54,8 +49,6 @@ public partial class GeneralSettingsPage : Page
 
     private void OnServiceStateChanged()
     {
-        // The event may fire from the Revit main thread or a background thread.
-        // Dispatcher.Invoke ensures we update WPF controls on the UI thread.
         Dispatcher.Invoke(RefreshConnectionStatus);
     }
 
@@ -83,7 +76,7 @@ public partial class GeneralSettingsPage : Page
         switch (UpdateChecker.State)
         {
             case UpdateChecker.DownloadState.Idle:
-                UpdateTitle.Text = $"RevitCortex Premium {info.RemoteVersion} disponibile";
+                UpdateTitle.Text = $"RevitCortex 2026 {info.RemoteVersion} disponibile";
                 UpdateDetail.Text = $"Sei sulla {UpdateChecker.CurrentVersion} — {info.Changelog}";
                 UpdateProgressGrid.Visibility = Visibility.Collapsed;
                 SetActionButton("Download & Install", "#FFB300", "#FF8F00", isEnabled: true);
@@ -154,7 +147,7 @@ public partial class GeneralSettingsPage : Page
     private void StartDownloadTimer()
     {
         if (_downloadTimer?.IsEnabled == true) return;
-        StopDownloadTimer(); // stop and null the old one before creating a new one
+        StopDownloadTimer();
         _downloadTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _downloadTimer.Tick += (_, _) => RefreshUpdateBanner();
         _downloadTimer.Start();
@@ -168,7 +161,7 @@ public partial class GeneralSettingsPage : Page
 
     private void StartUpdateBannerPolling()
     {
-        if (UpdateChecker.Latest != null) return; // check already completed
+        if (UpdateChecker.Latest != null) return;
 
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         int ticks = 0;
@@ -201,16 +194,12 @@ public partial class GeneralSettingsPage : Page
                 break;
 
             case UpdateChecker.DownloadState.Ready:
-                // H1: do not close Revit unless the installer actually started.
                 if (!UpdateChecker.LaunchInstaller())
                 {
                     RefreshUpdateBanner();
                     break;
                 }
                 RefreshUpdateBanner();
-                // Close Revit after a short delay so the installer process has
-                // time to start and enter its Assert-RevitClosed loop before
-                // Revit exits. Without this the DLLs are locked and the install fails.
                 var closeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
                 closeTimer.Tick += (_, _) =>
                 {
@@ -221,15 +210,9 @@ public partial class GeneralSettingsPage : Page
                 break;
 
             case UpdateChecker.DownloadState.Installing:
-                // Button is disabled in this state — unreachable in practice.
-                break;
-
             case UpdateChecker.DownloadState.Done:
-                // Banner is hidden in this state; click is unreachable.
-                break;
-
             default:
-                break; // Guard against future enum additions.
+                break;
         }
     }
 
@@ -238,10 +221,6 @@ public partial class GeneralSettingsPage : Page
         var info = UpdateChecker.Latest;
         if (info == null || string.IsNullOrWhiteSpace(info.DownloadUrl)) return;
 
-        // H38: never shell-execute an unvalidated URL. UseShellExecute dispatches by
-        // scheme, so a non-https FileName (file://, ms-msdt:, UNC path) that slipped
-        // through would run as the user. Gate on the same HTTPS + host allowlist used
-        // for the elevated installer path.
         if (!UpdateChecker.IsTrustedDownloadUrl(info.DownloadUrl))
         {
             TaskDialog.Show(Localization.T("support.title"),
@@ -271,7 +250,7 @@ public partial class GeneralSettingsPage : Page
 
         if (running)
         {
-            StatusDot.Fill = new SolidColorBrush(Color.FromRgb(46, 125, 50));   // green
+            StatusDot.Fill = new SolidColorBrush(Color.FromRgb(46, 125, 50));
             StatusBanner.Background = new SolidColorBrush(Color.FromRgb(232, 245, 233));
             StatusBanner.BorderBrush = new SolidColorBrush(Color.FromRgb(165, 214, 167));
             StatusTitle.Text = "Server running";
@@ -281,7 +260,7 @@ public partial class GeneralSettingsPage : Page
         }
         else
         {
-            StatusDot.Fill = new SolidColorBrush(Color.FromRgb(158, 158, 158)); // gray
+            StatusDot.Fill = new SolidColorBrush(Color.FromRgb(158, 158, 158));
             StatusBanner.Background = new SolidColorBrush(Color.FromRgb(245, 245, 245));
             StatusBanner.BorderBrush = new SolidColorBrush(Color.FromRgb(224, 224, 224));
             StatusTitle.Text = "Server stopped";
@@ -384,8 +363,6 @@ public partial class GeneralSettingsPage : Page
 
         try
         {
-            // Merge-write: preserve keys managed by other pages (e.g. EnableCodeExecution,
-            // DisabledTools) by loading the existing JSON first and updating only our fields.
             JObject settings = File.Exists(SettingsFilePath)
                 ? JObject.Parse(File.ReadAllText(SettingsFilePath))
                 : new JObject();
@@ -395,8 +372,6 @@ public partial class GeneralSettingsPage : Page
             settings["ReadOnlyMode"] = ReadOnlyCheckBox.IsChecked == true;
             settings["SupportReportKeepCount"] = keep;
             settings["EnableTelemetry"] = EnableTelemetryCheckBox.IsChecked == true;
-            // Saving the page is an affirmative action: stamp consent so the
-            // first-run dialog does not re-ask what the user just decided.
             settings["TelemetryConsentAnswered"] = true;
             settings["TelemetryConsentVersion"] =
                 RevitCortex.Core.Telemetry.TelemetryConfig.CurrentConsentVersion;
@@ -406,7 +381,6 @@ public partial class GeneralSettingsPage : Page
 
             File.WriteAllText(SettingsFilePath, settings.ToString(Formatting.Indented));
 
-            // Apply read-only mode immediately (no restart needed)
             if (RevitCortexApp.Instance?.Router != null)
                 RevitCortexApp.Instance.Router.ReadOnlyMode = ReadOnlyCheckBox.IsChecked == true;
 
@@ -431,11 +405,10 @@ public partial class GeneralSettingsPage : Page
     {
         SaveFeedbackText.Text = message;
         SaveFeedbackText.Foreground = new SolidColorBrush(success
-            ? Color.FromRgb(46, 125, 50)        // green
-            : Color.FromRgb(198, 40, 40));      // red
+            ? Color.FromRgb(46, 125, 50)
+            : Color.FromRgb(198, 40, 40));
         SaveFeedbackText.Visibility = Visibility.Visible;
 
-        // Restart hint stays visible longer (4s) so the user can read it.
         var ttl = restartHint ? TimeSpan.FromSeconds(4) : TimeSpan.FromSeconds(2.5);
 
         _saveFeedbackTimer?.Stop();
