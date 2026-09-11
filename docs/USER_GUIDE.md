@@ -117,6 +117,14 @@ Apply the change.
 
 RevitCortex also uses confirmation dialogs for destructive operations and checks Revit transaction commit status so a rollback is not reported as success.
 
+`dryRun` support is **partial**, not universal. In the structural-steel toolset, these write tools currently do **not** provide a preview/dry-run parameter and therefore confirm and then write directly:
+
+- `set_steel_connection_default_order`
+- `set_steel_solid_cut_face_splitting`
+- `set_steel_fabrication_unique_id`
+
+For those non-preview mutators, review the target and requested values carefully before approving the write.
+
 ---
 
 ## Custom C# execution
