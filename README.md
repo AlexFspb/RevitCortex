@@ -4,6 +4,8 @@
 >
 > Revit 2023, 2024, 2025 and 2027 plugin targets were intentionally removed so development, testing, installation and release packaging can focus on **Revit 2026 / .NET 8**.
 
+This is an **unofficial, independently maintained fork** of RevitCortex.
+
 Fork repository: `AlexFspb/RevitCortex`  
 Upstream project: `LuDattilo/RevitCortex`
 
@@ -37,6 +39,19 @@ Revit API writes are dispatched into the proper Revit API context through `Exter
 
 The current tool catalog is defined by the C# MCP wrappers and `tool-schemas.txt`; avoid relying on a hard-coded tool count because the catalog can change.
 
+## Fork access model
+
+The upstream experimental **RevitCortex Premium / License & Account** entitlement subsystem is **not included in this fork**. There is no Premium activation key, trial state, machine fingerprint license gate, expiry state or license-based read-only fallback in the Revit 2026 fork.
+
+This is separate from the software's legal license: the upstream **MIT License and original copyright notice remain unchanged in `LICENSE`**.
+
+Write access is controlled by the actual operating/safety settings instead:
+
+- **Settings → General → Read-Only Mode** can explicitly block write tools;
+- individual tools can be disabled in **Settings → Tools**;
+- destructive operations retain confirmation/safety handling;
+- `send_code_to_revit` retains its dedicated enable switch, sandbox checks and audit logging.
+
 ## Main fork customization: timed script approval
 
 `send_code_to_revit` remains a last-resort feature for operations that are not covered by a dedicated RevitCortex tool.
@@ -58,10 +73,14 @@ For the final critical confirmation, this fork adds a dedicated Revit window wit
 
 - Prefer dedicated RevitCortex tools over arbitrary C#.
 - Use `dryRun: true` / preview-first workflows where supported.
-- Read-only mode continues to block write tools.
+- User-selected read-only mode continues to block write tools.
 - `send_code_to_revit` continues to use sandbox validation and audit logging.
 - The timed auto-run option automates only the final critical approval; it does not disable the other safety gates.
 - Modal family-editing flows such as `Document.EditFamily` should not be executed from the MCP external-event path because they can deadlock Revit.
+
+## Diagnostic reports
+
+The ribbon action **Diagnostic Report** creates a ZIP locally and opens it in Explorer. This fork does **not** automatically email the upstream author or upload the report anywhere.
 
 ## Build
 
@@ -168,4 +187,4 @@ For this fork, any legacy instruction that asks for R23/R24/R25/R27 build valida
 
 This repository is derived from `LuDattilo/RevitCortex`. The original project and its contributors remain the upstream source for the base implementation.
 
-See `LICENSE` for license terms.
+The upstream copyright notice and MIT license are intentionally retained. See `LICENSE` for the exact terms.
