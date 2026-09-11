@@ -5,7 +5,7 @@
   Run this AFTER closing Claude Desktop, otherwise the running .exe is locked.
 
 .NOTES
-  - Self-contained publish (mandatory: framework-dependent breaks the exe — see memory).
+  - Self-contained publish is mandatory; framework-dependent deployment can break the exe.
   - Reopen Claude Desktop after this script finishes.
 #>
 
@@ -21,13 +21,13 @@ Write-Host ""
 # Sanity: warn if Claude Desktop is running (file lock will fail)
 $claude = Get-Process "Claude" -ErrorAction SilentlyContinue
 if ($claude) {
-    Write-Host "WARNING: Claude Desktop is still running — close it before continuing." -ForegroundColor Red
+    Write-Host "WARNING: Claude Desktop is still running - close it before continuing." -ForegroundColor Red
     Write-Host "         The deploy will fail with 'file in use' otherwise."
     $r = Read-Host "Continue anyway? (y/N)"
     if ($r -ne "y") { exit 1 }
 }
 
-# Sanity: warn if any orphan RevitCortex.Server.exe
+# Sanity: stop any orphan RevitCortex.Server.exe
 $orphans = Get-Process "RevitCortex.Server" -ErrorAction SilentlyContinue
 if ($orphans) {
     Write-Host "Killing $($orphans.Count) orphan RevitCortex.Server processes..." -ForegroundColor Yellow
@@ -35,7 +35,7 @@ if ($orphans) {
     Start-Sleep -Milliseconds 500
 }
 
-# Wipe old install (avoids the publish-mode-mix trap)
+# Wipe old install to avoid mixing publish modes
 if (Test-Path $ServerTarget) {
     Write-Host "Wiping old server install..." -ForegroundColor Yellow
     Remove-Item -Recurse -Force $ServerTarget
