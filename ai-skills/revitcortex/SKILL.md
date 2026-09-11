@@ -1,48 +1,53 @@
 ---
 name: revitcortex
-description: Use when working with RevitCortex operations, MCP tool workflows, Revit model automation, or RevitCortex C# development. Routes Codex to focused references for model operations, safe write workflows, send_code_to_revit escalation, IFC, PowerBI, Obsidian, tool development, net48/net8 compatibility, audit/read-only security, and build/test checks.
+description: Use for RevitCortex 2026 operations, MCP tool workflows, Revit model automation, or RevitCortex C# development. This fork targets Autodesk Revit 2026 / .NET 8 only.
 ---
 
-# RevitCortex Skill Router
+# RevitCortex 2026 Skill Router
 
-Router per Codex / Claude Code. Carica solo i reference necessari per il task corrente. **Non eseguire mai operazioni MCP senza aver prima caricato il reference operator pertinente.**
+This fork supports **Autodesk Revit 2026 only**. Do not apply upstream R23/R24/R25/R27 build instructions to this repository.
 
 ## Always-on rules
 
-Queste regole valgono in ogni sessione, indipendentemente dal task:
-
-1. Per richieste su modello Revit: caricare `operator_01_Session_Start_Locale.md` prima di qualsiasi altra cosa.
-2. Per modifiche distruttive: caricare `operator_03_Destructive_Operations_DryRun.md` e usare `dryRun: true` come prima esecuzione.
-3. `send_code_to_revit` per bulk/batch richiede consenso esplicito: caricare `operator_10_SendCodeToRevit_Escalation.md`.
-4. Per modifiche al codice C#: caricare `developer_22_Net48_Net8_Compatibility.md` e ricordare le build `Debug R25` + `Debug R24`.
-5. In read-only mode (`~/.revitcortex/settings.json`): nessun workaround; caricare `developer_24_ReadOnly_Audit_Security.md`.
+1. For Revit model requests, load `operator_01_Session_Start_Locale.md` before locale-sensitive work.
+2. For destructive changes, load `operator_03_Destructive_Operations_DryRun.md` and use `dryRun: true` first where supported.
+3. Prefer dedicated RevitCortex tools over `send_code_to_revit`.
+4. Before using `send_code_to_revit`, follow `operator_10_SendCodeToRevit_Escalation.md`.
+5. C# development targets **Revit 2026 / .NET 8** only; validate `Debug R26` and `Release R26` as appropriate.
+6. Read-only mode must never be bypassed; see `developer_24_ReadOnly_Audit_Security.md`.
 
 ## Request classification
 
-| Tipo richiesta | Trigger tipici | Reference da caricare |
-|---|---|---|
-| Operazione modello | warning, clash, parametri, viste, tag, schedule, IFC | `operator_01`, `operator_02` + dominio |
-| Modifica parametri | update, compilare, svuotare, copiare, sync CSV | `operator_01`, `operator_03`, `operator_04` |
-| Operazione distruttiva | delete, purge, rename, modifica massiva | `operator_03` (+ `operator_10` se script) |
-| Health/Clash | morning check, warning, clash detection | `operator_01`, `operator_05` |
-| Vista / annotazione | tag, color, dimension, view template | `operator_01`, `operator_06` |
-| IFC | import, link, rebuild, export | `operator_01`, `operator_07` |
-| PowerBI | publish, query, selection, schedule | `operator_01`, `operator_08` |
-| Obsidian / knowledge | vault, note, write-back | `operator_09` |
-| Script consenso | bulk via send_code, complex logic | `operator_10` |
-| Nuovo tool C# | add tool, new MCP tool, schema | `developer_20`, `developer_21`, `developer_22`, `developer_25` |
-| Fix C# error | net48 error, build failure | `developer_22`, `developer_25` |
-| Dynamic tools | DocumentAnalyzer, capabilities | `developer_23` |
-| Security / audit | read-only, audit, sandbox, permission | `developer_24` |
+| Request | References |
+|---|---|
+| Model operation | `operator_01`, `operator_02` + domain reference |
+| Parameter modification | `operator_01`, `operator_03`, `operator_04` |
+| Destructive operation | `operator_03` (+ `operator_10` for custom C#) |
+| Health / clash | `operator_01`, `operator_05` |
+| View / annotation | `operator_01`, `operator_06` |
+| IFC | `operator_01`, `operator_07` |
+| Power BI | `operator_01`, `operator_08` |
+| Obsidian / knowledge | `operator_09` |
+| Custom C# script | `operator_10` |
+| New C# tool | `developer_20`, `developer_21`, `developer_22`, `developer_25` |
+| Build / C# failure | `developer_22`, `developer_25` |
+| Dynamic tools | `developer_23` |
+| Security / audit | `developer_24` |
 
-## How to use a reference
+## Script confirmation in this fork
 
-1. Leggi `references/00_Master_Index.md` se non sai dove cercare.
-2. Carica solo i reference indicati dalla classificazione.
-3. Segui `Decision rules` -> `Required checks` -> `Avoid` nell'ordine.
-4. Se un workflow funzionante non e documentato, aggiungilo a `WORKFLOWS.md` E aggiorna `index_41_Workflow_Source_Map.md`.
+Critical C# execution uses the RevitCortex confirmation window. `Allow auto-run` is optional and session-only. When enabled, a visible **10-second countdown** auto-approves the script unless the user presses No or closes the dialog. The setting resets when Revit closes.
+
+This does not disable sandbox validation, audit logging, read-only protection, or the rule to prefer dedicated tools.
+
+## Reference usage
+
+1. Read `references/00_Master_Index.md` if the correct reference is unclear.
+2. Load only references relevant to the current task.
+3. Follow decision rules and required checks before execution.
+4. If a workflow is changed for this fork, document the Revit 2026 behavior rather than copying a legacy multi-version rule.
 
 ## Indices
 
-- `index_40_Tool_Signature_Index.md`: firme rapide dei 157 tool MCP.
-- `index_41_Workflow_Source_Map.md`: mappa template -> fonte canonica.
+- `index_40_Tool_Signature_Index.md`: quick tool-signature lookup; `tool-schemas.txt` is canonical.
+- `index_41_Workflow_Source_Map.md`: workflow source map.
