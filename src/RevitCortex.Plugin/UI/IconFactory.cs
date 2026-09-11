@@ -8,11 +8,9 @@ namespace RevitCortex.Plugin.UI;
 
 /// <summary>
 /// Generates ribbon icons programmatically with vector symbols.
-/// Teal accent (#00838F) to distinguish from the fork's orange branding.
 /// </summary>
 public static class IconFactory
 {
-    private static readonly Color TealPrimary = Color.FromRgb(0, 131, 143);   // #00838F
     private static readonly Color TealDark = Color.FromRgb(0, 96, 100);       // #006064
     private static readonly Color IndigoAccent = Color.FromRgb(92, 107, 192); // #5C6BC0
     private static readonly Color ActiveGreen = Color.FromRgb(46, 125, 50);   // #2E7D32
@@ -24,8 +22,7 @@ public static class IconFactory
         var bg = isActive ? ActiveGreen : InactiveGray;
         return CreateIconWithDrawing(size, bg, (dc, s) =>
         {
-            // Lightning bolt
-            double m = s * 0.2; // margin
+            double m = s * 0.2;
             var pen = new Pen(Brushes.White, s * 0.08) { LineJoin = PenLineJoin.Round };
             pen.Freeze();
             var bolt = new StreamGeometry();
@@ -39,14 +36,13 @@ public static class IconFactory
             bolt.Freeze();
             dc.DrawGeometry(null, pen, bolt);
 
-            // Small dot at bottom-right corner (status indicator)
             double dotR = s * 0.1;
             dc.DrawEllipse(Brushes.White, null,
                 new Point(s * 0.75, s * 0.75), dotR, dotR);
         });
     }
 
-    /// <summary>Panel icon: chat bubble on indigo background</summary>
+    /// <summary>Panel icon: chat bubble on indigo background.</summary>
     public static BitmapSource CreatePanelIcon(int size)
     {
         return CreateIconWithDrawing(size, IndigoAccent, (dc, s) =>
@@ -55,7 +51,6 @@ public static class IconFactory
             var pen = new Pen(Brushes.White, s * 0.07) { LineJoin = PenLineJoin.Round };
             pen.Freeze();
 
-            // Rounded chat bubble
             var bubble = new StreamGeometry();
             using (var ctx = bubble.Open())
             {
@@ -66,7 +61,6 @@ public static class IconFactory
                 ctx.ArcTo(new Point(r, t + cr), new Size(cr, cr), 0, false, SweepDirection.Clockwise, true, true);
                 ctx.LineTo(new Point(r, b - cr), true, true);
                 ctx.ArcTo(new Point(r - cr, b), new Size(cr, cr), 0, false, SweepDirection.Clockwise, true, true);
-                // Tail
                 ctx.LineTo(new Point(s * 0.45, b), true, true);
                 ctx.LineTo(new Point(s * 0.30, s - m), true, true);
                 ctx.LineTo(new Point(s * 0.35, b), true, true);
@@ -78,7 +72,6 @@ public static class IconFactory
             bubble.Freeze();
             dc.DrawGeometry(null, pen, bubble);
 
-            // Three dots inside bubble
             double dotY = (m + s * 0.65) / 2;
             double dotR = s * 0.04;
             for (int i = 0; i < 3; i++)
@@ -89,7 +82,7 @@ public static class IconFactory
         });
     }
 
-    /// <summary>Settings icon: gear on dark teal background</summary>
+    /// <summary>Settings icon: gear on dark teal background.</summary>
     public static BitmapSource CreateSettingsIcon(int size)
     {
         return CreateIconWithDrawing(size, TealDark, (dc, s) =>
@@ -101,7 +94,6 @@ public static class IconFactory
             var pen = new Pen(Brushes.White, s * 0.06);
             pen.Freeze();
 
-            // Gear outline
             var gear = new StreamGeometry();
             using (var ctx = gear.Open())
             {
@@ -128,20 +120,17 @@ public static class IconFactory
             gear.Freeze();
             dc.DrawGeometry(null, pen, gear);
 
-            // Center circle
             double centerR = s * 0.08;
             dc.DrawEllipse(Brushes.White, null, center, centerR, centerR);
         });
     }
 
     /// <summary>
-    /// Power BI icon: four bars of increasing height (analytics/dashboard motif)
-    /// on a yellow-amber background to evoke the Power BI brand without using
-    /// the trademarked logo.
+    /// Power BI icon: four bars of increasing height on a yellow-amber background.
     /// </summary>
     public static BitmapSource CreatePowerBiIcon(int size)
     {
-        var amber = Color.FromRgb(245, 158, 11); // #F59E0B (warm amber)
+        var amber = Color.FromRgb(245, 158, 11);
         return CreateIconWithDrawing(size, amber, (dc, s) =>
         {
             double margin = s * 0.18;
@@ -160,53 +149,11 @@ public static class IconFactory
         });
     }
 
-    /// <summary>License icon: shield with a checkmark, on a violet background
-    /// (distinct from the teal-gear Settings icon it used to borrow).</summary>
-    public static BitmapSource CreateLicenseIcon(int size)
-    {
-        var violet = Color.FromRgb(123, 31, 162); // #7B1FA2
-        return CreateIconWithDrawing(size, violet, (dc, s) =>
-        {
-            double m = s * 0.22;
-            var pen = new Pen(Brushes.White, s * 0.07) { LineJoin = PenLineJoin.Round };
-            pen.Freeze();
-
-            // Shield outline
-            var shield = new StreamGeometry();
-            using (var ctx = shield.Open())
-            {
-                double l = m, r = s - m, t = m * 0.9, mid = s * 0.55, b = s - m * 0.7;
-                ctx.BeginFigure(new Point(s / 2.0, t), false, true);
-                ctx.LineTo(new Point(r, t + (mid - t) * 0.35), true, true);
-                ctx.LineTo(new Point(r, mid), true, true);
-                ctx.LineTo(new Point(s / 2.0, b), true, true);
-                ctx.LineTo(new Point(l, mid), true, true);
-                ctx.LineTo(new Point(l, t + (mid - t) * 0.35), true, true);
-            }
-            shield.Freeze();
-            dc.DrawGeometry(null, pen, shield);
-
-            // Checkmark inside the shield
-            var check = new StreamGeometry();
-            using (var ctx = check.Open())
-            {
-                ctx.BeginFigure(new Point(s * 0.36, s * 0.5), false, false);
-                ctx.LineTo(new Point(s * 0.46, s * 0.6), true, true);
-                ctx.LineTo(new Point(s * 0.66, s * 0.38), true, true);
-            }
-            check.Freeze();
-            var checkPen = new Pen(Brushes.White, s * 0.08) { LineJoin = PenLineJoin.Round, StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
-            checkPen.Freeze();
-            dc.DrawGeometry(null, checkPen, check);
-        });
-    }
-
-    /// <summary>Support icon: stylized envelope on indigo background.</summary>
+    /// <summary>Diagnostic report icon: stylized envelope on indigo background.</summary>
     public static BitmapSource CreateSupportIcon(int size)
     {
         return CreateIconWithDrawing(size, IndigoAccent, (dc, s) =>
         {
-            // Envelope body (rounded rectangle)
             double mx = s * 0.15;
             double my = s * 0.25;
             double w = s - 2 * mx;
@@ -216,7 +163,6 @@ public static class IconFactory
             pen.Freeze();
             dc.DrawRoundedRectangle(null, pen, rect, s * 0.05, s * 0.05);
 
-            // Envelope flap (triangle apex pointing down to center)
             var flap = new StreamGeometry();
             using (var ctx = flap.Open())
             {
@@ -229,14 +175,11 @@ public static class IconFactory
         });
     }
 
-    /// <summary>
-    /// Stop Auto icon: red square (stop symbol) on a dark-red background when active,
-    /// gray when inactive.
-    /// </summary>
+    /// <summary>Stop Auto icon: red square on a dark-red background when active.</summary>
     public static BitmapSource CreateStopAutoIcon(int size, bool isActive = true)
     {
         var bg = isActive
-            ? Color.FromRgb(183, 28, 28)   // #B71C1C deep red
+            ? Color.FromRgb(183, 28, 28)
             : InactiveGray;
         return CreateIconWithDrawing(size, bg, (dc, s) =>
         {
