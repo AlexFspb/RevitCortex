@@ -10,8 +10,10 @@ This repository targets **Autodesk Revit 2026 only**.
 - Plugin/Tools runtime: .NET 8
 - Build configurations: `Debug R26`, `Release R26`
 - Older plugin targets R23/R24/R25 and R27 are intentionally not maintained in this fork.
+- The upstream experimental Premium/License & Account entitlement subsystem is intentionally removed.
+- The upstream MIT software license remains unchanged in `LICENSE`.
 
-Do not restore multi-version compatibility unless the user explicitly decides to support another Revit release.
+Do not restore multi-version compatibility or Premium entitlement gating unless the user explicitly decides to do so.
 
 ## Architecture
 
@@ -101,9 +103,11 @@ Required gates remain:
 
 1. `EnableCodeExecution` must be enabled.
 2. Code must pass the sandbox.
-3. Router/read-only/license rules still apply.
+3. Router permissions, disabled-tool settings and user-selected read-only mode still apply.
 4. Critical confirmation is requested before execution.
 5. Invocation is audited.
+
+There is no Premium activation/expiry/license gate in this fork.
 
 Available script globals:
 
@@ -134,11 +138,13 @@ Auto-run automates only the last approval step. It must never bypass sandbox val
 ## UI rules
 
 - `SettingsWindow` must retain navigation to General and Tools pages.
+- Do not re-add a License & Account page unless the fork deliberately adopts a new entitlement model.
 - `GeneralSettingsPage.xaml` control names must remain aligned with its code-behind.
 - `ToolsSettingsPage.xaml` must retain `CodeExecToggle` because the code-behind uses it.
 - Revit 2026 wording should be used in fork-specific visible descriptions.
 - Normal destructive confirmations remain handled by `ConfirmationHelper` / native TaskDialog behavior.
 - Critical custom-C# confirmation uses the dedicated WPF window.
+- `Diagnostic Report` is local-only; it must not silently email or upload data.
 
 ## Deployment
 
@@ -183,6 +189,7 @@ Maintain these controls:
 - sandbox validation for arbitrary C#;
 - audit logging;
 - read-only enforcement;
+- disabled-tool enforcement;
 - structured router errors;
 - transaction rollback/failure checks;
 - localhost bridge behavior;
@@ -201,4 +208,4 @@ Fork behavior should be consistent across:
 - `distribution/LEGGIMI.md`
 - `ai-skills/revitcortex/`
 
-Large upstream historical/specification documents may still describe the original multi-version project. When they conflict with this file on target version/build/deploy policy, the **Revit 2026 fork rules in this file win**.
+Large upstream historical/specification documents may still describe the original multi-version project. When they conflict with this file on target version/build/deploy/access policy, the **Revit 2026 fork rules in this file win**.
