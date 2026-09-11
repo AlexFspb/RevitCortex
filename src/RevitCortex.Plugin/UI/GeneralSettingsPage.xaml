@@ -29,17 +29,14 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <!-- Status dot -->
                 <Ellipse x:Name="StatusDot" Grid.Column="0" Width="12" Height="12"
                          VerticalAlignment="Center" Margin="0,0,10,0" Fill="#9E9E9E"/>
-                <!-- Status text -->
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock x:Name="StatusTitle" Text="Server stopped"
                                FontSize="13" FontWeight="SemiBold" Foreground="#333"/>
                     <TextBlock x:Name="StatusDetail" Text="Click 'Cortex Switch' in the ribbon to start"
                                FontSize="11" Foreground="#666" Margin="0,2,0,0"/>
                 </StackPanel>
-                <!-- Port badge -->
                 <Border Grid.Column="2" x:Name="PortBadge" CornerRadius="4" Padding="8,3"
                         Background="#E0E0E0" VerticalAlignment="Center">
                     <TextBlock x:Name="PortBadgeText" FontSize="11" Foreground="#555"/>
@@ -47,7 +44,7 @@
             </Grid>
         </Border>
 
-        <!-- Update Available Banner (hidden until UpdateChecker finds a newer version) -->
+        <!-- Update Available Banner -->
         <Border Grid.Row="2" x:Name="UpdateBanner" CornerRadius="6" Padding="14,10"
                 Margin="0,0,0,15" Background="#FFF8E1" BorderThickness="1" BorderBrush="#FFB300"
                 Visibility="Collapsed">
@@ -60,7 +57,6 @@
                     <TextBlock x:Name="UpdateTitle" FontSize="13" FontWeight="SemiBold" Foreground="#333"/>
                     <TextBlock x:Name="UpdateDetail" FontSize="11" Foreground="#666"
                                Margin="0,2,0,0" TextWrapping="Wrap"/>
-                    <!-- Progress bar: visible only while downloading -->
                     <Grid x:Name="UpdateProgressGrid" Visibility="Collapsed" Margin="0,6,0,0">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -73,14 +69,12 @@
                                    FontSize="10" Foreground="#888" Margin="0,3,0,0"/>
                     </Grid>
                 </StackPanel>
-                <!-- Action buttons — only one visible at a time (except ERROR shows both) -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                     <Button x:Name="UpdateActionButton"
                             Content="Download &amp; Install"
                             Padding="14,6" FontSize="13"
                             Background="#FFB300" Foreground="White" BorderBrush="#FF8F00"
                             Click="UpdateAction_Click" Cursor="Hand"/>
-                    <!-- Secondary button: visible only in ERROR state -->
                     <Button x:Name="UpdateManualButton"
                             Content="Download manually"
                             Padding="10,6" Margin="8,0,0,0" FontSize="12"
@@ -163,10 +157,10 @@
 
                 <Separator Grid.Row="7" Grid.ColumnSpan="2" Margin="0,5" Background="#E0E0E0"/>
 
-                <!-- Support Reports -->
+                <!-- Local diagnostic reports -->
                 <StackPanel Grid.Row="8" Grid.Column="0" Margin="0,10" VerticalAlignment="Center">
-                    <TextBlock x:Name="SupportReportsTitle" Text="Support Reports" FontSize="14" FontWeight="SemiBold" Foreground="#333"/>
-                    <TextBlock x:Name="SupportReportsSubtitle" Text="Number of reports to keep on disk" FontSize="11" Foreground="#666" Margin="0,3,0,0"/>
+                    <TextBlock x:Name="SupportReportsTitle" Text="Diagnostic Reports" FontSize="14" FontWeight="SemiBold" Foreground="#333"/>
+                    <TextBlock x:Name="SupportReportsSubtitle" Text="Number of local reports to keep on disk" FontSize="11" Foreground="#666" Margin="0,3,0,0"/>
                 </StackPanel>
                 <StackPanel Grid.Row="8" Grid.Column="1" Orientation="Horizontal" Margin="15,10,0,10" VerticalAlignment="Center">
                     <TextBox x:Name="KeepCountTextBox" Padding="8,6" FontSize="14"
