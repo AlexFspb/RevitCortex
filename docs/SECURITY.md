@@ -1,183 +1,219 @@
-# RevitCortex -- Analisi di Sicurezza
+# RevitCortex 2026 — Security Model
 
-**Data:** 2026-04-11
-**Autore:** Luigi Dattilo
-**Versione:** 1.0
+This document describes the current security behavior of the **Autodesk Revit 2026** fork.
 
----
+## Scope
 
-## Superficie di attacco
+RevitCortex consists of:
 
-RevitCortex e un'applicazione locale, non un servizio cloud. Non espone API su internet, non ha un database remoto, non gestisce autenticazione di utenti. Tutto avviene sul computer del professionista: Claude Desktop comunica con il plugin Revit attraverso un canale locale (stdio), il modello BIM non lascia mai la macchina. Questo riduce drasticamente la superficie di attacco rispetto a un'applicazione web o SaaS.
+- an MCP server launched by the user's AI client;
+- a Revit 2026 add-in;
+- a localhost TCP/JSON-RPC bridge between them;
+- optional integrations such as Power BI;
+- an optional custom C# execution tool (`send_code_to_revit`).
 
-In termini pratici: non c'e un server da bucare, non ci sono credenziali da rubare su un endpoint pubblico, non ci sono dati che transitano su internet durante l'utilizzo operativo.
-
-## Rischio principale: esecuzione di codice arbitrario
-
-RevitCortex eredita dal progetto originale uno strumento chiamato `send_code_to_revit`, che permette di inviare blocchi di codice C# arbitrario e farli eseguire direttamente dentro Revit. E lo strumento piu potente del sistema ma anche il rischio di sicurezza piu significativo del progetto.
-
-Il problema non e tecnico ma di fiducia: se qualcuno riuscisse a far credere al modello AI di dover eseguire un certo blocco di codice, potrebbe in teoria fargli fare qualsiasi cosa sulla macchina -- leggere file, modificare il modello, accedere al filesystem locale attraverso le API .NET disponibili in C#. Questo tipo di attacco si chiama **prompt injection**: un contenuto malevolo nascosto in un file che l'AI sta analizzando (ad esempio un file IFC o un CSV importato) che contiene istruzioni camuffate da testo normale.
-
-Nel contesto di un professionista BIM che usa il sistema su modelli propri, il rischio e basso in uso normale. Ma e un rischio che deve essere gestito esplicitamente nel codice, non ignorato.
-
-### Contromisure implementate
-
-1. **Sandbox namespace**: Lista di namespace .NET proibiti per `send_code_to_revit` (`System.IO`, `System.Net`, `System.Diagnostics.Process`, `Microsoft.Win32`, `System.Reflection.Emit`), verificata a runtime prima dell'esecuzione del codice
-2. **Warning visibile**: Ogni invocazione di `send_code_to_revit` mostra un avviso all'utente
-3. **Modalita locked**: `send_code_to_revit` puo essere disabilitato nelle impostazioni per ambienti di produzione
-
-## Gestione dei dati del modello BIM
-
-I modelli Revit contengono informazioni sensibili: dati di progetto, localizzazione di edifici, dati cliente, planimetrie. RevitCortex non trasmette questi dati a server esterni durante l'esecuzione -- tutto rimane locale. Tuttavia quando Claude Desktop elabora una richiesta che include dati del modello (ad esempio "analizza questi parametri"), quei dati transitano verso i server Anthropic per l'elaborazione del linguaggio naturale.
-
-Questo e un aspetto che il titolare del trattamento deve considerare nell'ottica del GDPR (Regolamento UE 2016/679). Non si tratta di dati personali nel senso classico, ma se i modelli contengono dati riferibili a persone fisiche (proprietari, residenti, dati catastali nominativi), la trasmissione verso un servizio cloud di AI va documentata come trattamento. La base giuridica e tipicamente il legittimo interesse professionale o il contratto con il cliente, ma deve essere esplicitata.
-
-Anthropic pubblica una data processing agreement (DPA) e politiche di utilizzo dei dati che specificano come vengono trattati i dati inviati tramite Claude Desktop. E consigliabile leggere queste politiche e, se necessario, valutare l'uso di Claude for Enterprise che offre garanzie piu stringenti sul non utilizzo dei dati per il training.
-
-## Dependency e supply chain
-
-RevitCortex dipende dalla Revit API (Microsoft/Autodesk, affidabile), da librerie .NET standard, e dal protocollo MCP. La catena di dipendenze e corta e controllabile, molto diversa da un progetto Node.js con centinaia di pacchetti npm che ognuno introduce rischi di supply chain. Questo e un vantaggio concreto della scelta C# nativo.
-
-Il rischio residuo e il fork originale: se mcp-servers-for-revit o il fork LuDattilo/revit-mcp-server introducesse codice malevolo in un aggiornamento, e RevitCortex lo usasse come riferimento senza verifica, si potrebbe ereditare il problema. La strategia di riscrittura guidata -- leggere il fork come specifica funzionale e non copiarne il codice -- elimina proprio questo rischio.
-
-## Buone pratiche
-
-### Gia presenti nel design
-
-- Transazioni esplicite con rollback automatico su errore (impedisce modifiche parziali e corruzione del modello)
-- Error handling tipizzato che non espone stack trace all'utente finale
-- Binding socket solo su `IPAddress.Loopback` (127.0.0.1)
-- Conferma utente obbligatoria per operazioni distruttive via `RequestConfirmation()`
-
-> **Nota (2026-05-12):** la dichiarazione "Nessun accesso di rete in uscita da parte dei tool" non è più corretta. I tool `PowerBiLive` (`PbiPublish*`, `PbiTriggerRefreshTool`) e `PowerBiServiceClient` effettuano chiamate HTTPS verso `api.powerbi.com` e `login.microsoftonline.com` (auth MSAL). Vedere sezione "Nuova superficie di rete — PBI REST" più sotto.
-
-### Implementate come requisiti di sicurezza
-
-- **Sandbox per `send_code_to_revit`**: lista di namespace .NET proibiti verificata prima dell'esecuzione
-- **Audit log locale**: ogni operazione registrata in `~/.revitcortex/audit.jsonl` (tool, elementi, timestamp)
-- **Modalita read-only**: flag configurabile che disabilita tutti i tool di scrittura
-
-## Nuova superficie di rete — PBI REST API (2026-05-12)
-
-Con l'integrazione `PowerBiLive` (Pipeline B) e `PbiTriggerRefreshTool` (Opzione C), il plugin effettua chiamate HTTPS in uscita verso:
-
-| Endpoint | Scopo | Attivato da |
-|---|---|---|
-| `https://login.microsoftonline.com/...` | MSAL OAuth — acquisizione/rinnovo access token | Sign-in utente, silent refresh |
-| `https://api.powerbi.com/v1.0/myorg/...` | Push righe, trigger refresh, list datasets/workspaces | Tools `PbiPublish*`, `PbiTriggerRefreshTool` |
-
-### Caratteristiche
-
-- **Solo su azione esplicita utente**: le chiamate partono unicamente quando l'utente preme "Esporta" (con checkbox refresh attivo) o invoca un tool via chat. Non c'è polling o heartbeat.
-- **Auth tramite MSAL**: nessuna credenziale è salvata in chiaro. MSAL usa la cache DPAPI (`~/.revitcortex/msal_cache.json`, cifrata per l'utente corrente).
-- **Dati trasmessi**: ID di workspace e dataset (GUID, non sensibili), payload righe CSV aggregate (dati del modello BIM). Nessuna credenziale, nessun file completo.
-- **AllowExternalWrites flag**: `PowerBiSettings.AllowExternalWrites` deve essere `true` per abilitare le chiamate. Default `false` → tutte le push bloccate finché l'utente non abilita esplicitamente.
-
-### Classificazione rischio
-
-| Area | Livello | Note |
-|---|---|---|
-| HTTPS verso api.powerbi.com | Basso | Transport cifrato, API ufficiale Microsoft, token OAuth short-lived |
-| Dati BIM verso PBI Service | Medio | Stesso tenant M365 dell'utente — dati non escono dall'organizzazione |
-| Token MSAL in cache locale | Basso | DPAPI cifra per utente, non leggibile da altri utenti |
-
-### GDPR — aggiornamento
-
-I dati del modello Revit trasmessi via RevitCortex raggiungono ora **tre destinazioni cloud**:
-1. **Anthropic** (Claude/LLM): parametri e descrizioni inviati nelle prompt. Vedi DPA Anthropic.
-2. **Microsoft OneDrive / SharePoint**: file CSV scritti nella cartella OneDrive locale e sincronizzati in cloud. Soggetto alla DPA Microsoft 365 del tenant GPA.
-3. **Microsoft Power BI Service**: righe aggregate inviate via REST API al workspace. Stesso tenant M365 — trattamento interno all'organizzazione.
-
-Per tutte e tre: base giuridica = legittimo interesse professionale / esecuzione contratto con il cliente. Se i modelli contengono dati riferibili a persone fisiche (es. dati catastali nominativi), documentare il flusso nel registro trattamenti GDPR.
+The Revit bridge is local to the workstation. Some optional integrations can perform outbound HTTPS requests when explicitly configured and invoked.
 
 ---
 
-## PBI Live Phase 2C — listener HTTP locale (porta 27016)
+## Local Revit bridge
 
-Per consentire al custom visual di Power BI Desktop di guidare la selezione in Revit, il plugin avvia un `HttpListener` sulla porta locale `27016` mentre Cortex Switch è attivo. Caratteristiche:
+The normal MCP-to-Revit command path is:
 
-- **Binding solo localhost**: il prefisso è `http://localhost:27016/`, non `+` o `*` -- il sistema operativo rifiuta connessioni da altri host
-- **Nessuna autenticazione**: il listener accetta qualunque POST localhost senza token
-- **Operazioni esposte**: selezione e isolamento temporaneo di elementi (entrambi non distruttivi: nessun salvataggio, nessuna modifica al modello)
-- **Auto-stop**: il listener si ferma quando l'utente clicca Cortex Switch, quando il documento viene chiuso, o quando Revit termina
+```text
+MCP client
+  -> RevitCortex.Server
+  -> localhost TCP bridge
+  -> RevitCortex.Plugin
+  -> Revit API
+```
 
-### Modello di trust
+The Revit-side bridge is controlled by **Cortex Switch** and is not started automatically.
 
-Il listener si fida di **qualunque processo locale** che possa aprire una connessione TCP a `localhost:27016`. In pratica:
-
-- Altri utenti sulla stessa macchina (sessioni Windows separate) NON possono raggiungerlo (Windows isola il loopback per sessione)
-- Browser web aperti dallo stesso utente potrebbero teoricamente fare richieste cross-origin -- mitigato dai CORS preflight (i browser bloccano POST con `Content-Type: application/json` senza preflight, e il listener risponde solo `Access-Control-Allow-Origin: *` su OPTIONS, non echo dell'origin)
-- Altri programmi avviati dallo stesso utente possono inviare POST e forzare una selezione Revit
-
-### Impatto
-
-Le operazioni esposte (select, isolate temporary) **non modificano il modello e non scrivono su disco**. L'unico effetto è cambiare cosa l'utente vede o ha selezionato in Revit -- fastidioso ma non distruttivo. Una `Selection.SetElementIds` non può corrompere il file, non può eseguire codice, non può esfiltrare dati.
-
-### Mitigazioni future (non implementate)
-
-Se in futuro venissero esposte operazioni distruttive via HTTP:
-
-1. **Token per-sessione**: generare un token random in `~/.revitcortex/pbi-token.json` (permessi solo utente), il custom visual lo leggerebbe però il PBIVIZ sandbox non permette filesystem access -- alternativa: token passato via query string PBI-side e configurato dall'utente
-2. **Allowlist `Host` header**: rifiutare richieste con `Host` diverso da `localhost:27016` (mitiga DNS rebinding)
-3. **Rate limiting**: max N richieste/secondo per evitare flooding
-
-### Stato attuale (v1.0.0.10)
-
-Il listener Phase 2C è classificato come **rischio basso**: operazioni non distruttive, binding loopback, auto-stop al cambio documento. Il rischio principale residuo è un'altra app locale che fa selezioni indesiderate (UX, non security).
+Revit API write operations are executed in the appropriate Revit API context through the plugin dispatcher.
 
 ---
 
-## Validazione percorsi file — PathSafety (2026-06-10)
+## Read-only mode
 
-I tool che accettano percorsi file dal chiamante (MCP) passano attraverso `PathSafety.TryResolveSafe` (`RevitCortex.Tools/Utilities/PathSafety.cs`): il percorso viene canonicalizzato (`Path.GetFullPath`, che collassa `..`) e accettato solo se ricade sotto directory di proprietà dell'utente — Documents, Desktop, Downloads, profilo utente, temp. Percorsi di sistema (`C:\Windows`, `C:\ProgramData`, ...) e traversal vengono rifiutati con `InvalidInput` strutturato.
+RevitCortex has a configurable read-only mode. When enabled, tools classified as write operations are blocked by the router.
 
-### Tool coperti
-
-**Policy stretta (solo directory utente, niente UNC):** `import_table`, `workflow_data_roundtrip`, `ifc_validate_request`, `ifc_export_basic`, `ifc_export_with_configuration`, `ifc_set_family_mapping_file`, `ifc_open_or_import`, `export_to_excel`, `export_families`, `import_from_excel`, `batch_export`, `export_shared_parameter_file`.
-
-**Policy link (UNC ammesso, `allowUnc: true`):** `ifc_link`, `ifc_reload_link`, `add_linked_file`, `reload_linked_file_from`.
-
-### Trade-off UNC sui tool di link
-
-Collegare modelli da share di rete (`\\server\share\...`) è un workflow BIM standard (modelli centrali, coordinamento multidisciplinare): bloccare gli UNC su questi quattro tool li renderebbe inutilizzabili in studio. Il rischio residuo è contenuto perché:
-
-1. ogni tool di link è già gated da `RequestConfirmation()` — il dialogo nativo Revit mostra il percorso all'utente prima di procedere;
-2. i percorsi locali restano comunque vincolati alle directory utente anche con `allowUnc: true`;
-3. l'operazione di scrittura derivata (la cache `.ifc.RVT` creata da `CreateFromIFC`) finisce accanto al file IFC validato, e l'eventuale sovrascrittura della cache è dichiarata nel dialogo di conferma.
-
-I tool di export e import dati restano invece su policy stretta: scrivere o leggere file arbitrari su share di rete non è necessario per quei workflow e amplierebbe la superficie di esfiltrazione/sovrascrittura.
+Custom C# must not be used as a workaround for read-only mode.
 
 ---
 
-## Outbound telemetry (v1.0.4x+)
+## Destructive-operation confirmation
 
-RevitCortex can send pseudonymous error/bottleneck events to
-`https://ingest.revitcortex.dev` (`POST /v1/events`). This surface is:
+Normal destructive/bulk tools can request confirmation through `CortexSession.RequestConfirmation(...)`.
 
-- **Opt-in, default OFF.** Gated by `EnableTelemetry` + `TelemetryConsentAnswered`
-  + `TelemetryConsentVersion` in `~/.revitcortex/settings.json`. No event is
-  queued before affirmative consent (first-run dialog or Settings toggle).
-- **Minimal by construction.** Events carry: tool name, error code/class,
-  fingerprint, versions, locale, duration, response size, random installation
-  GUID. Never: tool inputs, raw exception text, document titles/paths,
-  usernames, machine names, parameter/family/type names, element ids
-  (enforced by `MessageSanitizer` fail-closed verdict + unit tests).
-- **Fail-safe.** 5 s timeout, offline queue capped at 5 MB (drop-oldest),
-  all entry points wrapped: telemetry can never crash or slow Revit.
+The normal confirmation flow can expose:
+
+- Yes
+- Yes to All (short-lived approval window)
+- Auto (generic normal-operation auto mode)
+- No
+
+These controls apply to normal destructive tool confirmations and are separate from the critical custom-C# confirmation.
 
 ---
 
-## Livello di rischio
+## Custom C# execution
 
-| Area | Livello rischio | Stato |
-|------|----------------|-------|
-| Esposizione rete | Basso | Architettura locale |
-| Prompt injection via `send_code_to_revit` | Medio-alto | Mitigato con sandbox |
-| Dati BIM verso cloud AI | Medio | Da documentare per GDPR |
-| Supply chain dipendenze | Basso | Strategia riscrittura guidata |
-| Corruzione modello per errore | Basso | Transazioni con rollback |
-| Audit trail operazioni | Basso | Implementato audit log |
-| PBI listener localhost (Phase 2C) | Basso | Loopback + operazioni non distruttive + auto-stop |
-| PBI REST API in uscita (Pipeline B + Opzione C) | Basso | HTTPS, stesso tenant M365, dati non escono dall'org |
-| Token MSAL cache locale | Basso | DPAPI cifra per utente Windows corrente |
-| Percorsi file arbitrari dai tool | Basso | PathSafety su tutti i tool con path caller-supplied; UNC solo sui tool di link con conferma utente |
+`send_code_to_revit` is the highest-risk capability in the project and is treated as a **last resort**.
+
+Before custom C# runs, the following gates remain active:
+
+1. `EnableCodeExecution` must be explicitly enabled.
+2. The code must pass sandbox validation.
+3. Router permission/read-only/license rules still apply.
+4. A critical confirmation decision is required in Revit.
+5. The invocation is written to the audit trail.
+
+The tool is intended for Revit API operations not adequately covered by dedicated tools. Dedicated RevitCortex tools should be preferred.
+
+### Sandbox
+
+The sandbox blocks dangerous namespace/API patterns used for unrestricted filesystem, network, process, registry, emit/interoperability access. The exact implementation in `CodeSandbox` / `CodeSandboxV2` is authoritative.
+
+Examples of restricted areas include:
+
+- `System.IO`
+- `System.Net`
+- `System.Diagnostics.Process`
+- `Microsoft.Win32`
+- `System.Reflection.Emit`
+- `System.Runtime.InteropServices`
+
+Do not weaken sandbox rules merely to make an arbitrary script easier to execute.
+
+### Audit
+
+Custom C# invocations are audited. The router also records normal tool activity and execution outcomes using the configured audit logger.
+
+---
+
+## Critical C# confirmation and `Allow auto-run`
+
+This fork adds a convenience option to the critical script confirmation window.
+
+The user can choose:
+
+- **Yes** — approve the current script immediately;
+- **No** — cancel;
+- **Allow auto-run** — allow timed approval for critical scripts during the current Revit process.
+
+When **Allow auto-run** is enabled, the Yes action displays a visible **10-second countdown**. If the user does nothing, the current script is approved at zero. Yes and No remain available throughout the countdown.
+
+### Important boundaries
+
+`Allow auto-run`:
+
+- is **off by default after Revit starts**;
+- is stored only in process memory;
+- resets when Revit closes;
+- does not write a permanent trust flag to `settings.json`;
+- does not bypass sandbox validation;
+- does not bypass `EnableCodeExecution`;
+- does not bypass read-only/router/license checks;
+- does not disable audit logging.
+
+It automates only the final critical approval step after a visible delay.
+
+---
+
+## Revit transaction safety
+
+Write tools should:
+
+- validate inputs before opening a transaction;
+- use preview/dry-run modes where supported;
+- open the appropriate Revit transaction boundary;
+- roll back on errors;
+- verify commit status;
+- return a structured failure if Revit rejects or rolls back the operation.
+
+A failed or rolled-back transaction must not be reported as success.
+
+---
+
+## Modal Revit API operations
+
+Do not run modal family-editing flows such as `Document.EditFamily` from the MCP external-event execution context. Modal Revit UI/API workflows can block the external-event request and deadlock the caller.
+
+---
+
+## Path safety
+
+Tools that accept filesystem paths should use the project's path-safety helpers rather than arbitrary raw paths.
+
+The implementation may distinguish between ordinary import/export paths and linked-model/network-share workflows. The current `PathSafety` code is authoritative for allowed locations.
+
+---
+
+## Power BI and outbound network access
+
+Power BI functionality can perform outbound HTTPS requests when the user explicitly signs in and invokes Power BI tools.
+
+Typical destinations include Microsoft authentication and Power BI service endpoints.
+
+Model-derived information can therefore leave the local workstation when the user intentionally publishes to Power BI. Organizations should evaluate those flows under their own Microsoft 365/Power BI governance and data-protection policies.
+
+The local Power BI selection listener is intended for localhost interaction and should not be treated as a public network API.
+
+---
+
+## Telemetry
+
+Where telemetry exists, it must remain opt-in according to the current settings/consent implementation. Telemetry failures must not break or block normal Revit operation.
+
+Do not add raw model data, document paths, user credentials or arbitrary tool inputs to telemetry events.
+
+---
+
+## Automatic updates
+
+The **upstream automatic update channel is disabled in this fork**.
+
+This is intentional: consuming the upstream `LuDattilo` release channel could replace the customized Revit 2026 binaries with an upstream build.
+
+Until the fork has a dedicated `AlexFspb` release channel, updates are installed manually from this fork.
+
+Download URL validation and SHA-256 helper functions are retained for future use by a fork-owned updater.
+
+---
+
+## Installation scope
+
+Revit can load add-ins from both machine scope and user scope. A stale duplicate installation can cause the wrong DLL to load.
+
+Use `check-install.ps1` to diagnose duplicate RevitCortex 2026 installations before debugging unexpected behavior.
+
+Development/deployment scripts in this fork target **Revit 2026 only**.
+
+---
+
+## Security review checklist
+
+When changing the plugin or adding tools, verify that:
+
+- read-only mode still blocks write operations;
+- destructive writes use confirmation/preview where appropriate;
+- custom C# still requires the code-execution gate and sandbox;
+- critical confirmation fails closed if its UI cannot be shown;
+- `Allow auto-run` remains session-only unless the product policy is deliberately changed;
+- audit logging remains active;
+- transaction failures return structured errors;
+- localhost services are not accidentally widened to public network interfaces;
+- outbound integrations are explicit and documented;
+- the fork does not silently restore the upstream update channel.
+
+---
+
+## Source of truth
+
+For current behavior, use this precedence:
+
+1. current Revit 2026 source code/project files;
+2. `AGENTS.md`;
+3. `README.md`, `CLAUDE.md`, this security document and current AI-skill references;
+4. dated upstream design/review documents as historical context only.
