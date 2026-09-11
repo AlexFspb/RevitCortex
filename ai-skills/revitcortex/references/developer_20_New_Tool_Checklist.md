@@ -1,28 +1,27 @@
-# 20 — New Tool Checklist
+# 20 — New Tool Checklist (Revit 2026 Fork)
 
-**Scope:** Aggiungere un nuovo `ICortexTool` al server RevitCortex.
-**Sources:** CLAUDE.md §"ICortexTool", src/RevitCortex.Core/Tools/ICortexTool.cs
-**Last verified:** 2026-05-25
+**Scope:** Add a new `ICortexTool` to this fork.
+**Target:** Autodesk Revit 2026 / .NET 8 only.
+**Last verified for fork scope:** 2026-09-11.
 
-## File da toccare
+## Files commonly touched
 
-| File | Responsabilità |
+| File | Responsibility |
 |---|---|
-| `src/RevitCortex.Tools/<Category>/<ToolName>Tool.cs` | Implementazione `ICortexTool` |
-| `src/RevitCortex.Server/Tools/<Category>Tools.cs` | Definizione MCP (nome, descrizione, JsonSchema) |
-| `tool-schemas.txt` | Firma compatta (rigenerare con `node server/generate-tool-schemas-csharp.mjs`) |
-| `docs/USER_GUIDE.md` | Documentazione end-user |
-| `WORKFLOWS.md` | Se il tool fa parte di un workflow nuovo o esistente |
-| `CLAUDE.md` | Se introduce regole/anti-pattern specifici |
-| `ai-skills/revitcortex/references/operator_*.md` | Reference operativo se cambia un workflow |
+| `src/RevitCortex.Tools/<Category>/<ToolName>Tool.cs` | `ICortexTool` implementation |
+| `src/RevitCortex.Server/Tools/<Category>Tools.cs` | MCP wrapper / schema |
+| `tool-schemas.txt` | Compact generated signatures |
+| `docs/USER_GUIDE.md` | End-user documentation when relevant |
+| `WORKFLOWS.md` | Workflow documentation when behavior changes |
+| `ai-skills/revitcortex/references/operator_*.md` | Operational reference when needed |
 
 ## Naming
 
-- Nome MCP: `snake_case` (es. `get_element_parameters`)
-- Classe C#: `PascalCase` + suffisso `Tool` (es. `GetElementParametersTool`)
-- Categoria: PascalCase (es. "Elements", "Views", "Materials", "Ifc", "PowerBI")
+- MCP tool: `snake_case`
+- C# class: `PascalCase` + `Tool`
+- Category: stable domain name such as `Elements`, `Views`, `Materials`, `Ifc`, `PowerBI`
 
-## Interfaccia minima
+## Minimal implementation
 
 ```csharp
 public class MyNewTool : ICortexTool
@@ -34,39 +33,34 @@ public class MyNewTool : ICortexTool
 
     public CortexResult<object> Execute(JObject input, CortexSession session)
     {
-        // 1. Validare input
-        // 2. Se distruttivo: session.RequestConfirmation("action", count)
-        // 3. Eseguire dentro Transaction se modifica il doc
-        // 4. Ritornare CortexResult<object>.Ok(...) o .Fail(...)
+        // Validate input.
+        // For destructive work: request confirmation before Transaction.
+        // Use a Revit Transaction for model writes.
+        // Return CortexResult<object>.Ok(...) or .Fail(...).
     }
 }
 ```
 
-## RequiresDocument
+## Write-tool rules
 
-| Valore | Significato |
-|---|---|
-| `true` | Tool ha bisogno di un modello Revit aperto |
-| `false` | Tool meta (es. `say_hello`, capability check) |
-
-## IsDynamic
-
-Se `true`, il tool è registrato solo se `DocumentCapabilities` lo abilita. Vedi `developer_23_Dynamic_Tools_And_Capabilities.md`.
+- Use `dryRun: true` first when the tool supports preview.
+- Call `session.RequestConfirmation(...)` for destructive operations.
+- Use the standard transaction failure handling helpers so Revit warnings do not block the MCP bridge with modal dialogs.
+- Never report success if Revit rolled back the transaction.
 
 ## Required checks
 
-- [ ] `ICortexTool` implementato correttamente.
-- [ ] Naming convention rispettata.
-- [ ] Schema MCP definito in `<Category>Tools.cs`.
-- [ ] `tool-schemas.txt` rigenerato.
-- [ ] `USER_GUIDE.md` aggiornato.
-- [ ] Se distruttivo: `RequestConfirmation` chiamato.
-- [ ] Build R25 + R24 verde (vedi `developer_22`).
-- [ ] Test unitario in `RevitCortex.Tests/`.
+- [ ] `ICortexTool` implementation is correct.
+- [ ] MCP schema/wrapper is aligned with the implementation.
+- [ ] `tool-schemas.txt` regenerated when the schema changes.
+- [ ] Relevant documentation updated.
+- [ ] Destructive operations have preview/confirmation where appropriate.
+- [ ] Plugin builds with `Debug R26`.
+- [ ] Tools build with `Debug R26`.
+- [ ] Relevant tests added or updated.
 
 ## Avoid
 
-- Non aggiungere un tool senza aggiornare `tool-schemas.txt`.
-- Non aggiungere un tool senza test.
-- Non dimenticare il `RequestConfirmation` per operazioni distruttive.
-- Non usare `record` types (vedi `developer_22`).
+- Do not add compatibility code for R23/R24/R25/R27 unless support for that version is explicitly reintroduced.
+- Do not add a tool without schema/documentation alignment.
+- Do not bypass `CortexResult`, confirmation, read-only, audit or transaction-safety conventions.
