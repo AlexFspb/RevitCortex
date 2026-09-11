@@ -20,7 +20,11 @@ public class OpenPowerBiExport : IExternalCommand
                 return Result.Cancelled;
             }
 
-            var window = new PowerBiExportWindow(doc);
+            var window = new PowerBiExportWindow(doc)
+            {
+                // Override the legacy upstream XAML title so runtime branding is fork-specific.
+                Title = "RevitCortex 2026 — Power BI Export"
+            };
             try
             {
                 _ = new System.Windows.Interop.WindowInteropHelper(window)
@@ -38,9 +42,6 @@ public class OpenPowerBiExport : IExternalCommand
         }
         catch (Exception ex)
         {
-            // Surface the real error to the user — the default Revit dialog
-            // strips the stack trace, which makes diagnosing this particular
-            // window painful otherwise.
             var dlg = new TaskDialog("Power BI Export — errore")
             {
                 MainInstruction = "Impossibile aprire la finestra.",
