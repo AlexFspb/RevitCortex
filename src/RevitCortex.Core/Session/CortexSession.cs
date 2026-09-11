@@ -37,28 +37,26 @@ public class CortexSession
     public long BumpDocumentVersion() => Interlocked.Increment(ref _documentVersion);
 
     /// <summary>
-    /// Confirmation callback for destructive operations.
-    /// Set by Plugin layer to show TaskDialog. Tools call this before
-    /// destructive actions. Returns true to proceed, false to cancel.
-    /// Parameters: (actionVerb, elementCount, description) → bool? (null = "Yes to All" was clicked).
-    /// If null callback, operation proceeds without confirmation.
+    /// Confirmation callback for normal destructive operations.
+    /// Parameters: (actionVerb, elementCount, description) -> bool?
+    /// null means "Yes to All" and arms the 120-second ApproveAll window.
+    /// If the callback itself is null, the normal operation proceeds without confirmation.
     /// </summary>
     public Func<string, int, string?, bool?>? ConfirmAction { get; set; }
 
     /// <summary>
-    /// Confirmation callback for critical operations. Critical operations must
-    /// not expose batch approval modes such as "Yes to All" or "Auto"; null/false
-    /// both cancel.
+    /// Confirmation callback for critical operations such as custom C# execution.
+    /// Critical requests never consume the generic ApproveAll or AutoMode flags and
+    /// fail closed when no callback exists. The Plugin callback may provide its own
+    /// explicit UI policy; the Revit 2026 fork uses a visible session-only 10-second
+    /// auto-run countdown inside that critical confirmation window.
     /// </summary>
     public Func<string, int, string?, bool?>? CriticalConfirmAction { get; set; }
 
     /// <summary>
-    /// When true, all subsequent confirmations are auto-approved until timeout.
-    /// Set by "Yes to All" in the confirmation dialog. Expires after 120 seconds.
-    /// The flag+timestamp pair must be read/written as a unit, otherwise a
-    /// reader on a different thread can see the flag flipped to true while
-    /// the timestamp is still the default DateTime.MinValue — which makes
-    /// <c>(now - timestamp).TotalSeconds</c> huge and the check misfires.
+    /// When true, normal subsequent confirmations are auto-approved until timeout.
+    /// Set by "Yes to All" in the normal confirmation dialog. Expires after 120 seconds.
+    /// The flag+timestamp pair must be read/written as a unit.
     /// </summary>
     public bool ApproveAll
     {
@@ -83,11 +81,9 @@ public class CortexSession
     private DateTime _approveAllTimestamp;
 
     /// <summary>
-    /// When true, all subsequent confirmations are auto-approved. Set by "Auto"
-    /// in the confirmation dialog. Cleared by the user (Stop Auto / closing the
-    /// Auto mode window), or on document close (Reinitialize). Unlike ApproveAll
-    /// (a fixed 120 s wall-clock window), AutoMode has no timeout and continues
-    /// until an explicit stop path.
+    /// Generic Auto mode for normal destructive confirmations. This is separate
+    /// from the critical C# confirmation window's session-only "Allow auto-run"
+    /// option. Critical requests intentionally do not read this flag.
     /// </summary>
     public bool AutoMode
     {
@@ -97,9 +93,8 @@ public class CortexSession
     private bool _autoMode;
 
     /// <summary>
-    /// Raised every time a destructive operation is auto-approved because
-    /// AutoMode is on. Core stays Revit-agnostic: UI layers can use this for
-    /// status updates without changing the lifetime of Auto mode.
+    /// Raised every time a normal destructive operation is auto-approved because
+    /// generic AutoMode is on. Core stays Revit-agnostic so UI layers can update status.
     /// </summary>
     public event Action? AutoModeActivity;
 
@@ -122,25 +117,21 @@ public class CortexSession
         Capabilities = capabilities;
         DetectedLocale = locale;
 
-        // Switching/reopening a document invalidates everything that's not
-        // session-immutable. Session entries (e.g. project_info if we cached it
-        // for the SAME doc) would be stale here too — be conservative and
-        // drop them all on document boundary.
         Cache.InvalidateAll();
         BumpDocumentVersion();
         AutoMode = false;
     }
 
     /// <summary>
-    /// Ask user to confirm a destructive operation. Returns true if confirmed or no callback set.
-    /// If "Yes to All" was previously clicked, auto-approves for 120 s.
-    /// If "Auto" mode is active, auto-approves indefinitely until the user clicks Stop Auto.
-    /// Critical confirmations ignore automatic approval modes and require a real callback.
+    /// Ask for confirmation before a destructive operation.
+    /// Normal requests may use the 120-second ApproveAll window or generic AutoMode.
+    /// Critical requests bypass both generic modes, require CriticalConfirmAction,
+    /// and return exactly the decision produced by that callback.
     /// </summary>
     /// <param name="action">Action verb: "delete", "rename", "replace compound structure", etc.</param>
     /// <param name="elementCount">Number of elements affected.</param>
     /// <param name="description">Optional detailed description of what will happen.</param>
-    /// <param name="critical">If true, bypasses ApproveAll and fails closed when no callback is available.</param>
+    /// <param name="critical">If true, bypasses generic ApproveAll/AutoMode and fails closed if no critical callback is available.</param>
     public bool RequestConfirmation(
         string action,
         int elementCount,
@@ -148,14 +139,15 @@ public class CortexSession
         bool critical = false)
     {
         if (elementCount <= 0) return true;
+
         if (!critical && AutoMode)
         {
-            // Auto-approved by Auto mode. Signal activity so the UI keeps the
-            // Auto mode window alive through this burst of operations.
             AutoModeActivity?.Invoke();
             return true;
         }
+
         if (!critical && ApproveAll) return true;
+
         if (critical)
         {
             if (CriticalConfirmAction == null) return false;
@@ -166,25 +158,21 @@ public class CortexSession
         var result = ConfirmAction?.Invoke(action, elementCount, description);
         if (result == null)
         {
-            // null = "Yes to All" was clicked. Critical confirmations may
-            // proceed for this explicit click, but must not arm future approval.
-            if (!critical) ApproveAll = true;
+            ApproveAll = true;
             return true;
         }
+
         if (result == false) return false;
 
-        // Check for Auto sentinel: ConfirmAction returns false with a special
-        // convention would be complex — instead ConfirmationHelper sets AutoMode
-        // directly on the session. Check again after the dialog.
-        if (!critical && AutoMode) return true;
+        // ConfirmationHelper may set generic AutoMode directly when its Auto command is clicked.
+        if (AutoMode) return true;
 
         return result.Value;
     }
 
     /// <summary>
-    /// Resets both transient confirmation modes. Use this only for explicit stop
-    /// or session-boundary paths; the router clears ApproveAll directly after
-    /// each tool so AutoMode can remain active.
+    /// Resets generic normal-operation approval modes. Critical confirmation state
+    /// belongs to the Plugin UI and is intentionally not represented by these flags.
     /// </summary>
     public void ResetApproveAll()
     {
