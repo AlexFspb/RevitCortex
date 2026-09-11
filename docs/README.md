@@ -16,6 +16,12 @@ Use these files for current behavior:
 - `../ai-skills/revitcortex/` — focused AI skill/reference material
 - `../tool-schemas.txt` — generated technical MCP signatures
 
+## Current fork policy
+
+The fork uses Revit 2026 / .NET 8, session-only 10-second `Allow auto-run` critical C# approval, and manual fork-owned updates.
+
+The upstream experimental **Premium / License & Account** entitlement subsystem has been removed from this fork. This does not change the upstream project's legal license: the MIT license and copyright notice remain in `../LICENSE`.
+
 ## Historical upstream material
 
 Dated files under folders such as:
@@ -32,7 +38,8 @@ are retained as historical engineering context from the upstream project. They m
 - old build matrices;
 - old tool counts;
 - superseded release/update behavior;
-- earlier `send_code_to_revit` confirmation rules.
+- earlier `send_code_to_revit` confirmation rules;
+- old Premium/licensing plans that are not part of this fork.
 
 Those historical statements are **not** the source of truth for the current fork.
 
@@ -45,5 +52,3 @@ When documentation conflicts, use this order:
 3. current `README.md`, `CLAUDE.md`, `USER_GUIDE.md`, `SECURITY.md`, `WORKFLOWS.md`;
 4. current AI-skill references;
 5. dated upstream/historical documents.
-
-The current fork behavior is Revit 2026 / .NET 8 with session-only 10-second `Allow auto-run` critical C# approval and the upstream automatic update channel disabled.
