@@ -21,7 +21,7 @@ public static class ConfirmationHelper
     {
         if (elementCount <= 0) return true;
 
-        var dialog = new TaskDialog("RevitCortex Premium Confirmation")
+        var dialog = new TaskDialog("RevitCortex 2026 Confirmation")
         {
             MainInstruction = $"About to {action} ({elementCount} element(s))",
             CommonButtons = TaskDialogCommonButtons.None
@@ -48,16 +48,12 @@ public static class ConfirmationHelper
 
     public const bool AutoSentinel = true;
 
-    /// <summary>
-    /// Variant wired to a CortexSession: sets session.AutoMode = true when Auto is clicked
-    /// and fires AutoModeChanged so the ribbon can update its button visibility immediately.
-    /// </summary>
     public static bool? ConfirmWithSession(string action, int elementCount, string? description,
         CortexSession session)
     {
         if (elementCount <= 0) return true;
 
-        var dialog = new TaskDialog("RevitCortex Premium Confirmation")
+        var dialog = new TaskDialog("RevitCortex 2026 Confirmation")
         {
             MainInstruction = $"About to {action} ({elementCount} element(s))",
             CommonButtons = TaskDialogCommonButtons.None
@@ -105,8 +101,6 @@ public static class ConfirmationHelper
         {
             System.Diagnostics.Trace.WriteLine(
                 $"[RevitCortex] Critical confirmation window failed: {ex.Message}");
-
-            // Fail closed: a critical action must never execute because the custom UI failed.
             return false;
         }
     }
