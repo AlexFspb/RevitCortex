@@ -15,7 +15,7 @@ $TargetDir = Join-Path $AddInsDir "RevitCortex"
 $UserAddinsDir = Join-Path $env:APPDATA "Autodesk\Revit\Addins\2026"
 $UserTargetDir = Join-Path $UserAddinsDir "RevitCortex"
 
-Write-Host "=== RevitCortex Deploy ===" -ForegroundColor Cyan
+Write-Host "=== RevitCortex 2026 Deploy ===" -ForegroundColor Cyan
 Write-Host "Revit: 2026 | Config: $Configuration"
 Write-Host "Target: $TargetDir"
 
@@ -43,6 +43,7 @@ Write-Host "Publishing Tools for Revit 2026..." -ForegroundColor Yellow
 dotnet publish -c "$Configuration" "$RepoRoot\src\RevitCortex.Tools\RevitCortex.Tools.csproj" -o $PublishDir --no-self-contained
 if ($LASTEXITCODE -ne 0) { throw "Tools publish failed" }
 
+# Remove stale duplicate user-scope plugin copies so Revit can load only this build.
 if (Test-Path $UserTargetDir) {
     Write-Host "Removing competing user-scope install: $UserTargetDir" -ForegroundColor Yellow
     Remove-Item $UserTargetDir -Recurse -Force
@@ -56,6 +57,23 @@ Copy-Item "$PublishDir\*" $TargetDir -Recurse -Force
 
 $AddinSource = Join-Path $RepoRoot "src\RevitCortex.Plugin\RevitCortex.addin"
 Copy-Item $AddinSource $AddInsDir -Force
+
+# The upstream experimental Premium licensing subsystem is not part of this fork.
+# Remove only its obsolete local state files left by older Debug builds.
+$legacyLicenseFiles = @("license.json", "dev-license-key.json", "dev-node-lock.json")
+$profileRoots = @(
+    (Join-Path $env:USERPROFILE ".revitcortex"),
+    (Join-Path $env:USERPROFILE ".revitcortex-dev")
+)
+foreach ($root in $profileRoots) {
+    foreach ($fileName in $legacyLicenseFiles) {
+        $legacyPath = Join-Path $root $fileName
+        if (Test-Path $legacyPath) {
+            Remove-Item $legacyPath -Force -ErrorAction SilentlyContinue
+            Write-Host "Removed obsolete Premium state: $legacyPath" -ForegroundColor DarkGray
+        }
+    }
+}
 
 $dllCount = (Get-ChildItem "$TargetDir\*.dll").Count
 
@@ -77,4 +95,5 @@ if (Test-Path $skillSrc) {
 Write-Host "`n=== Deploy complete ===" -ForegroundColor Green
 Write-Host "$dllCount DLLs deployed to $TargetDir"
 Write-Host ".addin manifest copied to $AddInsDir\RevitCortex.addin"
+Write-Host "Legacy Premium license state removed if present."
 Write-Host "`nRestart Revit 2026 to load the plugin."
