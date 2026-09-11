@@ -86,18 +86,8 @@ internal static class Localization
         },
         ["support.already_running"] = new()
         {
-            ["en"] = "A log report is already being generated. Please wait for the first one to finish before retrying.",
-            ["it"] = "Invio log già in corso. Attendi il completamento del primo invio prima di riprovare.",
-        },
-        ["support.outlook_opened"] = new()
-        {
-            ["en"] = "A draft email has been opened in Outlook with the attached file:\n\n{0}\n\nReview the content, add any notes, and click Send.",
-            ["it"] = "Bozza email aperta in Outlook con il file allegato:\n\n{0}\n\nControlla il contenuto, aggiungi eventuali note e clicca Invia.",
-        },
-        ["support.outlook_unavailable"] = new()
-        {
-            ["en"] = "Outlook is not available or not responding. The diagnostic package has been created here:\n\n{0}\n\nPlease send it manually to {1} (email, Teams, OneDrive...).",
-            ["it"] = "Outlook non disponibile o non risponde. Il pacchetto diagnostico è stato creato qui:\n\n{0}\n\nInvialo manualmente a {1} (email, Teams, OneDrive...).",
+            ["en"] = "A diagnostic report is already being generated. Please wait before retrying.",
+            ["it"] = "È già in corso la generazione di un report diagnostico. Attendi prima di riprovare.",
         },
         ["support.package_failed"] = new()
         {
@@ -106,13 +96,13 @@ internal static class Localization
         },
         ["support.settings.title"] = new()
         {
-            ["en"] = "Support Reports",
-            ["it"] = "Report di supporto",
+            ["en"] = "Diagnostic Reports",
+            ["it"] = "Report diagnostici",
         },
         ["support.settings.subtitle"] = new()
         {
-            ["en"] = "Number of reports to keep on disk",
-            ["it"] = "Numero di report da conservare su disco",
+            ["en"] = "Number of local reports to keep on disk",
+            ["it"] = "Numero di report locali da conservare su disco",
         },
         ["support.settings.delete_now"] = new()
         {
@@ -131,18 +121,18 @@ internal static class Localization
         },
         ["support.cleanup.confirm_title"] = new()
         {
-            ["en"] = "Delete all support reports?",
-            ["it"] = "Eliminare tutti i report di supporto?",
+            ["en"] = "Delete all diagnostic reports?",
+            ["it"] = "Eliminare tutti i report diagnostici?",
         },
         ["support.cleanup.confirm_body"] = new()
         {
-            ["en"] = "Found {0} report(s) ({1}). All files in the folder will be permanently deleted. Continue?",
-            ["it"] = "Trovati {0} report ({1}). Tutti i file nella cartella verranno eliminati in modo permanente. Continuare?",
+            ["en"] = "Found {0} report(s) ({1}). All report files will be permanently deleted. Continue?",
+            ["it"] = "Trovati {0} report ({1}). Tutti i file dei report verranno eliminati definitivamente. Continuare?",
         },
         ["support.cleanup.none"] = new()
         {
-            ["en"] = "No support reports to delete.",
-            ["it"] = "Nessun report di supporto da eliminare.",
+            ["en"] = "No diagnostic reports to delete.",
+            ["it"] = "Nessun report diagnostico da eliminare.",
         },
         ["support.cleanup.done"] = new()
         {
