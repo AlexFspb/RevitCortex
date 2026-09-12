@@ -3,10 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -16,35 +13,22 @@ using RevitCortex.Plugin.UI;
 namespace RevitCortex.Plugin.Commands;
 
 /// <summary>
-/// Collects RevitCortex logs and context into a ZIP on the desktop, then opens a
-/// pre-filled Outlook message addressed to support with the ZIP attached.
-/// Falls back to opening the containing folder if Outlook COM automation is unavailable.
+/// Creates a local diagnostic ZIP for this independent Revit 2026 fork.
+/// Nothing is uploaded or emailed automatically.
 /// </summary>
 [Transaction(TransactionMode.Manual)]
 public class SendSupportReport : IExternalCommand
 {
-    private const string SupportEmail = "luigi.dattilo@gpapartners.com";
     private const int DefaultKeepCount = 10;
-
-    // _running  = UI-thread reentrancy guard (this Execute() in flight)
-    // _workerBusy = set while the background Outlook STA worker is alive;
-    // stays 1 even after Execute() returns when Outlook timed out, so the
-    // next click sees "already running" until the zombie worker actually
-    // finishes instead of launching a second Outlook draft on top.
     private static int _running;
-    private static int _workerBusy;
 
-    /// <summary>Folder where bug-report ZIPs are written and rotated.</summary>
     public static string ReportsFolder => CortexEnvironment.Current.SupportReportsFolder;
 
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
     {
         var title = Localization.T("support.title");
 
-        // Reject if either: (a) Execute is already on the UI thread stack, or
-        // (b) a previous Outlook worker is still alive after a timeout.
-        if (System.Threading.Volatile.Read(ref _workerBusy) == 1
-            || System.Threading.Interlocked.CompareExchange(ref _running, 1, 0) != 0)
+        if (System.Threading.Interlocked.CompareExchange(ref _running, 1, 0) != 0)
         {
             TaskDialog.Show(title, Localization.T("support.already_running"));
             return Result.Succeeded;
@@ -55,30 +39,16 @@ public class SendSupportReport : IExternalCommand
             Directory.CreateDirectory(ReportsFolder);
             RotateOldReports(ReportsFolder, ReadKeepCount());
 
-            var (zipPath, included, skipped) = BuildReportZip(commandData);
+            var zipPath = BuildReportZip(commandData);
 
-            var body = BuildEmailBody(commandData, included, skipped);
-            var subject = $"RevitCortex Premium bug report - {Environment.UserName} - {DateTime.Now:yyyy-MM-dd HH:mm}";
-
-            bool outlookOk = TryOpenOutlookWithTimeout(
-                subject, body, zipPath, TimeSpan.FromSeconds(10));
-
-            if (outlookOk)
+            try
             {
-                TaskDialog.Show(title, Localization.T("support.outlook_opened", zipPath));
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{zipPath}\"");
             }
-            else
-            {
-                // Fallback: open the folder so the user can attach manually.
-                try
-                {
-                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{zipPath}\"");
-                }
-                catch { /* non critico */ }
+            catch { }
 
-                TaskDialog.Show(title, Localization.T("support.outlook_unavailable", zipPath, SupportEmail));
-            }
-
+            TaskDialog.Show(title,
+                $"Diagnostic report created locally:\n\n{zipPath}\n\nNothing was sent automatically.");
             return Result.Succeeded;
         }
         catch (Exception ex)
@@ -93,8 +63,6 @@ public class SendSupportReport : IExternalCommand
         }
     }
 
-    // ── Settings + rotation ────────────────────────────────────────────────
-
     private static int ReadKeepCount()
     {
         try
@@ -107,7 +75,7 @@ public class SendSupportReport : IExternalCommand
             var n = obj["SupportReportKeepCount"]?.ToObject<int?>();
             if (n is int v && v >= 1 && v <= 200) return v;
         }
-        catch { /* fall through */ }
+        catch { }
         return DefaultKeepCount;
     }
 
@@ -122,17 +90,12 @@ public class SendSupportReport : IExternalCommand
 
             for (int i = keep; i < zips.Count; i++)
             {
-                try { zips[i].Delete(); } catch { /* ignore locked files */ }
+                try { zips[i].Delete(); } catch { }
             }
         }
-        catch { /* non fatal */ }
+        catch { }
     }
 
-    /// <summary>
-    /// Deletes all *.zip reports in <see cref="ReportsFolder"/>. Returns
-    /// (deleted, failed). Called from the settings page's "Delete all now"
-    /// button after user confirmation.
-    /// </summary>
     public static (int deleted, int failed, long bytesFreed) DeleteAllReports()
     {
         int deleted = 0, failed = 0;
@@ -153,7 +116,7 @@ public class SendSupportReport : IExternalCommand
                 catch { failed++; }
             }
         }
-        catch { /* ignore enumerate errors */ }
+        catch { }
         return (deleted, failed, bytes);
     }
 
@@ -181,30 +144,24 @@ public class SendSupportReport : IExternalCommand
         catch { return 0; }
     }
 
-    // ── Zip building ────────────────────────────────────────────────────────
-
-    private static (string zipPath, List<string> included, List<string> skipped) BuildReportZip(
-        ExternalCommandData commandData)
+    private static string BuildReportZip(ExternalCommandData commandData)
     {
         string rcFolder = CortexEnvironment.Current.RootFolder;
         string reportsDir = ReportsFolder;
         Directory.CreateDirectory(reportsDir);
         string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
-        string zipPath = Path.Combine(reportsDir, $"RevitCortex-BugReport-{Environment.UserName}-{stamp}.zip");
+        string zipPath = Path.Combine(reportsDir,
+            $"RevitCortex-BugReport-{Environment.UserName}-{stamp}.zip");
 
         var included = new List<string>();
         var skipped = new List<string>();
 
-        // Candidate files (path, entryNameInZip, isOptional).
-        // Token usage moved from JSONL to SQLite (usage-mcp.db) around 2026-04.
-        // The legacy JSONL is kept here in case pre-migration files still exist
-        // in the field for a while.
         var candidates = new List<(string src, string entry, bool optional)>
         {
-            (Path.Combine(rcFolder, "audit.jsonl"),                      "audit.jsonl",                 false),
-            (Path.Combine(rcFolder, "usage-mcp.db"),                     "usage-mcp.db",                true),
-            (Path.Combine(rcFolder, "logs", "token-usage.jsonl"),        "logs/token-usage.jsonl",      true),
-            (Path.Combine(rcFolder, "settings.json"),                    "settings.json",               true),
+            (Path.Combine(rcFolder, "audit.jsonl"),               "audit.jsonl",            false),
+            (Path.Combine(rcFolder, "usage-mcp.db"),              "usage-mcp.db",           true),
+            (Path.Combine(rcFolder, "logs", "token-usage.jsonl"), "logs/token-usage.jsonl", true),
+            (Path.Combine(rcFolder, "settings.json"),             "settings.json",          true),
         };
 
         using (var fs = new FileStream(zipPath, FileMode.Create))
@@ -214,9 +171,10 @@ public class SendSupportReport : IExternalCommand
             {
                 if (!File.Exists(src))
                 {
-                    skipped.Add($"{entry} (non trovato)");
+                    skipped.Add($"{entry} (not found)");
                     continue;
                 }
+
                 try
                 {
                     AddFileSafely(zip, src, entry);
@@ -229,7 +187,6 @@ public class SendSupportReport : IExternalCommand
                 }
             }
 
-            // Most recent Revit journal (can be large; we cap at 10 MB)
             var journal = FindLatestJournal();
             if (journal != null)
             {
@@ -243,7 +200,7 @@ public class SendSupportReport : IExternalCommand
                     }
                     else
                     {
-                        skipped.Add($"journal/{info.Name} (troppo grande: {info.Length / 1024 / 1024} MB)");
+                        skipped.Add($"journal/{info.Name} (too large: {info.Length / 1024 / 1024} MB)");
                     }
                 }
                 catch (Exception ex)
@@ -252,20 +209,16 @@ public class SendSupportReport : IExternalCommand
                 }
             }
 
-            // Context file
             var contextEntry = zip.CreateEntry("context.txt");
             using var writer = new StreamWriter(contextEntry.Open(), Encoding.UTF8);
-            WriteContextFile(writer, commandData);
-            included.Add("context.txt");
+            WriteContextFile(writer, commandData, included, skipped);
         }
 
-        return (zipPath, included, skipped);
+        return zipPath;
     }
 
     private static void AddFileSafely(ZipArchive zip, string source, string entryName)
     {
-        // Read+copy instead of CreateEntryFromFile so we don't hold an exclusive
-        // handle on the file (audit.jsonl may be written to concurrently).
         var entry = zip.CreateEntry(entryName, CompressionLevel.Optimal);
         using var src = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var dst = entry.Open();
@@ -277,12 +230,10 @@ public class SendSupportReport : IExternalCommand
         try
         {
             var app = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            // Typical path: %LOCALAPPDATA%\Autodesk\Revit\Autodesk Revit <year>\Journals
-            // We search all Revit versions and take the newest.
             var revitRoot = Path.Combine(app, "Autodesk");
             if (!Directory.Exists(revitRoot)) return null;
 
-            var journals = Directory
+            var journal = Directory
                 .EnumerateDirectories(revitRoot, "Autodesk Revit*", SearchOption.TopDirectoryOnly)
                 .SelectMany(d =>
                 {
@@ -295,7 +246,7 @@ public class SendSupportReport : IExternalCommand
                 .OrderByDescending(fi => fi.LastWriteTimeUtc)
                 .FirstOrDefault();
 
-            return journals?.FullName;
+            return journal?.FullName;
         }
         catch
         {
@@ -303,12 +254,11 @@ public class SendSupportReport : IExternalCommand
         }
     }
 
-    private static void WriteContextFile(StreamWriter w, ExternalCommandData commandData)
+    private static void WriteContextFile(StreamWriter w, ExternalCommandData commandData,
+        IReadOnlyCollection<string> included, IReadOnlyCollection<string> skipped)
     {
-        w.WriteLine("RevitCortex Premium diagnostic context");
-        w.WriteLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss} (local) / {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
-        w.WriteLine($"User:      {Environment.UserName}");
-        w.WriteLine($"Machine:   {Environment.MachineName}");
+        w.WriteLine("RevitCortex 2026 diagnostic context");
+        w.WriteLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss} local / {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
         w.WriteLine($"OS:        {Environment.OSVersion}");
         w.WriteLine($"Culture:   {System.Globalization.CultureInfo.CurrentUICulture.Name}");
 
@@ -326,16 +276,9 @@ public class SendSupportReport : IExternalCommand
         try
         {
             var doc = commandData.Application.ActiveUIDocument?.Document;
+            w.WriteLine($"Document open: {doc != null}");
             if (doc != null)
-            {
-                w.WriteLine($"Document:  {doc.Title}");
-                w.WriteLine($"Path:      {doc.PathName}");
-                w.WriteLine($"Workshared:{doc.IsWorkshared}");
-            }
-            else
-            {
-                w.WriteLine("Document:  (none open)");
-            }
+                w.WriteLine($"Workshared:    {doc.IsWorkshared}");
         }
         catch (Exception ex)
         {
@@ -343,17 +286,11 @@ public class SendSupportReport : IExternalCommand
         }
 
         w.WriteLine();
-        var pluginVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
-        // Machine-readable key (used by rclog to match known-issues with reporter_version_max).
+        var pluginVersion = System.Reflection.Assembly.GetExecutingAssembly()
+            .GetName().Version?.ToString() ?? "unknown";
         w.WriteLine($"plugin_version: {pluginVersion}");
         w.WriteLine("Plugin assembly: " + System.Reflection.Assembly.GetExecutingAssembly().Location);
 
-        // MCP / configuration (Phase 0 trust-cleanup acceptance criterion: the
-        // support report must identify the active MCP server, plugin version,
-        // Revit version, and the configuration path — so support can triage a
-        // single report and know exactly which stack/profile is active).
-        w.WriteLine();
-        w.WriteLine("Supported MCP server: revitcortex (C# stdio server, RevitCortex.Server.exe)");
         try
         {
             var env = CortexEnvironment.Current;
@@ -366,128 +303,14 @@ public class SendSupportReport : IExternalCommand
         {
             w.WriteLine($"Profile:        (unreadable: {ex.Message})");
         }
-    }
 
-    // ── Email body ──────────────────────────────────────────────────────────
-
-    private static string BuildEmailBody(ExternalCommandData commandData,
-        List<string> included, List<string> skipped)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("Ciao Luigi,");
-        sb.AppendLine();
-        sb.AppendLine("ti invio un bug report di RevitCortex Premium.");
-        sb.AppendLine();
-        sb.AppendLine("── Descrizione del problema ─────────────");
-        sb.AppendLine("(descrivi qui cosa stavi facendo e cosa è andato storto)");
-        sb.AppendLine();
-        sb.AppendLine("── Contesto ─────────────────────────────");
-        try
-        {
-            var app = commandData.Application.Application;
-            sb.AppendLine($"Utente:  {Environment.UserName}");
-            sb.AppendLine($"Revit:   {app.VersionName} ({app.VersionNumber})");
-            var doc = commandData.Application.ActiveUIDocument?.Document;
-            sb.AppendLine($"Modello: {(doc != null ? doc.Title : "(nessun documento aperto)")}");
-            sb.AppendLine($"Data:    {DateTime.Now:yyyy-MM-dd HH:mm}");
-        }
-        catch { /* keep the body usable */ }
-        sb.AppendLine();
-        sb.AppendLine("── File allegati ─────────────────────────");
-        foreach (var i in included) sb.AppendLine($"  ✓ {i}");
+        w.WriteLine();
+        w.WriteLine("Included files:");
+        foreach (var item in included) w.WriteLine("  + " + item);
         if (skipped.Count > 0)
         {
-            sb.AppendLine();
-            sb.AppendLine("── Non inclusi ───────────────────────────");
-            foreach (var s in skipped) sb.AppendLine($"  - {s}");
-        }
-        sb.AppendLine();
-        sb.AppendLine("Grazie,");
-        sb.AppendLine(Environment.UserName);
-        return sb.ToString();
-    }
-
-    // ── Outlook COM automation ──────────────────────────────────────────────
-
-    /// <summary>
-    /// Runs the Outlook COM call on a dedicated STA thread and waits up to
-    /// <paramref name="timeout"/>. If Outlook is stuck (hidden modal dialog,
-    /// profile prompt, slow startup), the Revit UI thread is never blocked.
-    /// When the timeout fires the worker keeps running (background STA thread
-    /// holds COM references until Outlook eventually settles), and flips
-    /// <see cref="_workerBusy"/> back to 0 in its finally. Subsequent clicks
-    /// on the ribbon read _workerBusy and refuse to start a second draft.
-    /// We never call Thread.Abort: not supported on net8 and unsafe on net48
-    /// with COM.
-    /// </summary>
-    private static bool TryOpenOutlookWithTimeout(string subject, string body,
-        string attachmentPath, TimeSpan timeout)
-    {
-        int resultFlag = 0;
-        var done = new ManualResetEventSlim(false);
-
-        System.Threading.Interlocked.Exchange(ref _workerBusy, 1);
-
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                bool ok = false;
-                try { ok = TryOpenOutlook(subject, body, attachmentPath); }
-                catch { ok = false; }
-                System.Threading.Volatile.Write(ref resultFlag, ok ? 1 : 0);
-            }
-            finally
-            {
-                done.Set();
-                System.Threading.Interlocked.Exchange(ref _workerBusy, 0);
-            }
-        });
-        thread.IsBackground = true;
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-
-        if (!done.Wait(timeout))
-            return false;
-
-        return System.Threading.Volatile.Read(ref resultFlag) == 1;
-    }
-
-    private static bool TryOpenOutlook(string subject, string body, string attachmentPath)
-    {
-        try
-        {
-            // Late-binding via Type.GetTypeFromProgID avoids a hard reference on
-            // Microsoft.Office.Interop.Outlook — works even if Outlook is not
-            // installed (we just fall through to the fallback path).
-            var outlookType = Type.GetTypeFromProgID("Outlook.Application");
-            if (outlookType == null) return false;
-
-            dynamic? outlook = Activator.CreateInstance(outlookType);
-            if (outlook == null) return false;
-
-            const int olMailItem = 0;
-            dynamic mail = outlook.CreateItem(olMailItem);
-            mail.Subject = subject;
-            mail.Body = body;
-
-            // Add recipient
-            dynamic recipient = mail.Recipients.Add(SupportEmail);
-            recipient.Resolve();
-
-            // Attach file
-            if (File.Exists(attachmentPath))
-                mail.Attachments.Add(attachmentPath, 1 /* olByValue */, Type.Missing, Type.Missing);
-
-            mail.Display(false); // non-modal: user can edit and click Send
-            Marshal.ReleaseComObject(recipient);
-            Marshal.ReleaseComObject(mail);
-            Marshal.ReleaseComObject(outlook);
-            return true;
-        }
-        catch
-        {
-            return false;
+            w.WriteLine("Skipped files:");
+            foreach (var item in skipped) w.WriteLine("  - " + item);
         }
     }
 }

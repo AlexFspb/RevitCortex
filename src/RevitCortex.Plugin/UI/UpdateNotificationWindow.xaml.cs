@@ -29,27 +29,20 @@ public partial class UpdateNotificationWindow : Window
         Refresh();
     }
 
-    // ── Startup ──────────────────────────────────────────────────────────────
-
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        // Parent this window to the Revit main window so it stays in front
-        // of Revit but not above other applications.
         try
         {
             var handle = Process.GetCurrentProcess().MainWindowHandle;
             if (handle != IntPtr.Zero)
                 new WindowInteropHelper(this).Owner = handle;
         }
-        catch { /* non-critical */ }
+        catch { }
 
-        // Position bottom-right of the primary screen with a small margin.
         var area = SystemParameters.WorkArea;
         Left = area.Right - Width - 20;
         Top  = area.Bottom - ActualHeight - 20;
     }
-
-    // ── Rendering ────────────────────────────────────────────────────────────
 
     private void Refresh()
     {
@@ -61,13 +54,13 @@ public partial class UpdateNotificationWindow : Window
         switch (_state)
         {
             case NotifState.Idle:
-                NotifTitle.Text  = $"RevitCortex Premium {info.RemoteVersion} disponibile";
+                NotifTitle.Text  = $"RevitCortex 2026 {info.RemoteVersion} disponibile";
                 NotifDetail.Text = string.IsNullOrWhiteSpace(info.Changelog)
                     ? $"Versione corrente: {UpdateChecker.CurrentVersion}"
                     : info.Changelog;
                 ProgressGrid.Visibility  = Visibility.Collapsed;
                 ConfirmBorder.Visibility = Visibility.Collapsed;
-                SetPrimary("Aggiorna ora",    "#FFB300", "#FF8F00");
+                SetPrimary("Aggiorna ora", "#FFB300", "#FF8F00");
                 SetSecondary("Più tardi", visible: true);
                 break;
 
@@ -116,7 +109,6 @@ public partial class UpdateNotificationWindow : Window
                 break;
         }
 
-        // Re-measure so SizeToContent recalculates height.
         UpdateLayout();
         var area = SystemParameters.WorkArea;
         Top = area.Bottom - ActualHeight - 20;
@@ -134,8 +126,6 @@ public partial class UpdateNotificationWindow : Window
         SecondaryButton.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         if (label != null) SecondaryButton.Content = label;
     }
-
-    // ── Button handlers ──────────────────────────────────────────────────────
 
     private void Primary_Click(object sender, RoutedEventArgs e)
     {
@@ -159,8 +149,6 @@ public partial class UpdateNotificationWindow : Window
 
             case NotifState.ConfirmInstall:
                 StopPolling();
-                // H1: only schedule Revit shutdown if the installer actually launched.
-                // On UAC denial / launch failure, stay put so the user keeps their work.
                 if (!UpdateChecker.LaunchInstaller())
                 {
                     _state = NotifState.Idle;
@@ -169,7 +157,6 @@ public partial class UpdateNotificationWindow : Window
                 }
                 _state = NotifState.Installing;
                 Refresh();
-                // Give the installer a moment to launch, then close Revit.
                 var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
                 t.Tick += (_, _) =>
                 {
@@ -190,33 +177,22 @@ public partial class UpdateNotificationWindow : Window
         switch (_state)
         {
             case NotifState.ConfirmInstall:
-                // Go back to idle — user changed mind
                 _state = NotifState.Idle;
                 Refresh();
                 break;
 
             default:
-                // "Più tardi" — dismiss; Settings page still shows the banner.
                 StopPolling();
                 Close();
                 break;
         }
     }
 
-    // ── Closing Revit ────────────────────────────────────────────────────────
-
     private const uint WM_CLOSE = 0x0010;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
-    /// <summary>
-    /// Closes the Revit process gracefully. Revit is a native Win32 application, so
-    /// Application.Current.Shutdown() does not terminate it (Application.Current is
-    /// typically null in the add-in). We post WM_CLOSE to the Revit main window, which
-    /// triggers Revit's normal shutdown — including unsaved-changes prompts. The elevated
-    /// installer waits for Revit to exit, so this lets the update finish unattended.
-    /// </summary>
     private static void CloseRevit()
     {
         try
@@ -228,12 +204,10 @@ public partial class UpdateNotificationWindow : Window
                 return;
             }
         }
-        catch { /* fall back to WPF shutdown below */ }
+        catch { }
 
         try { Application.Current?.Shutdown(); } catch { }
     }
-
-    // ── Download polling ─────────────────────────────────────────────────────
 
     private void StartPolling()
     {

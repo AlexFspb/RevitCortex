@@ -6,7 +6,6 @@
       mc:Ignorable="d"
       d:DesignHeight="500" d:DesignWidth="550">
     <Page.Resources>
-        <!-- Expander toggle style -->
         <Style x:Key="CategoryExpander" TargetType="Expander">
             <Setter Property="Background" Value="#F5F5F5"/>
             <Setter Property="BorderBrush" Value="#E0E0E0"/>
@@ -31,12 +30,10 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,10">
             <TextBlock Text="Tools" FontSize="22" FontWeight="SemiBold" Foreground="#333"/>
-            <TextBlock Text="Enable or disable individual tools" Foreground="#666" Margin="0,5,0,0"/>
+            <TextBlock Text="Enable or disable individual Revit 2026 tools" Foreground="#666" Margin="0,5,0,0"/>
 
-            <!-- Master switch for custom C# execution (send_code_to_revit) -->
             <Border Background="#FFF8E1" BorderBrush="#FFE082" BorderThickness="1"
                     CornerRadius="4" Padding="10,8" Margin="0,10,0,0">
                 <StackPanel>
@@ -44,12 +41,11 @@
                               Foreground="#5D4037"
                               Content="Allow send_code_to_revit (custom C# execution)"/>
                     <TextBlock Foreground="#8D6E63" FontSize="11" Margin="20,3,0,0" TextWrapping="Wrap"
-                               Text="Last resort only. When off, the assistant cannot run custom C# and must use dedicated tools. Off by default. Saved with the Save button below."/>
+                               Text="Last resort only. Off by default. Each script requires the critical confirmation window unless you explicitly enable session-only 'Allow auto-run'; with that option enabled, a visible 10-second countdown auto-approves the script. The auto-run choice resets when Revit closes."/>
                 </StackPanel>
             </Border>
         </StackPanel>
 
-        <!-- Search + counters -->
         <Grid Grid.Row="1" Margin="0,0,0,10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -81,7 +77,6 @@
             </StackPanel>
         </Grid>
 
-        <!-- Tools list grouped by category with Expanders -->
         <Border Grid.Row="2" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="4">
             <ScrollViewer VerticalScrollBarVisibility="Auto" CanContentScroll="True">
                 <ItemsControl x:Name="CategoryList"
@@ -142,7 +137,6 @@
             </ScrollViewer>
         </Border>
 
-        <!-- Footer -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
             <Button Content="Save" Padding="20,8" FontSize="13"
                     Background="#00838F" Foreground="White" BorderBrush="#006064"

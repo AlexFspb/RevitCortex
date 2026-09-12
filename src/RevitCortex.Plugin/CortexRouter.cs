@@ -27,24 +27,16 @@ public class CortexRouter
     private readonly IDocumentAnalyzer _analyzer;
     private readonly AuditLogger _auditLogger;
     private readonly ErrorReporter? _errorReporter;
-    // volatile: set once from OnStartup (UI thread) but read from the socket
-    // worker thread inside Route. The cheap guarantee is a full acquire/release
-    // barrier so the worker never sees a partially-initialised dispatcher.
+
+    // Set once from OnStartup (UI thread) but read from socket worker threads.
     private volatile RevitThreadDispatcher? _dispatcher;
 
-    // UI-thread id, captured when the dispatcher is wired in OnStartup.
-    // Used to detect callers that are ALREADY on the UI thread (e.g. WPF
-    // button handlers like the Power BI Export panel) so we can run the
-    // tool inline instead of dispatching via ExternalEvent — which would
-    // deadlock because Revit's external-event machinery can only fire when
-    // the UI thread is idle, and a UI-thread caller blocked in
-    // WaitForCompletion holds it busy until timeout.
+    // Captured when the dispatcher is wired in OnStartup. Used to detect callers
+    // already on Revit's UI thread so we do not deadlock by waiting on ExternalEvent.
     private int _uiThreadId;
-    // H27: read on socket worker threads (Route) and written from the WPF UI thread
-    // (SetDisabledTools). A mutated HashSet races (Clear/Add visible mid-read). System
-    // .Collections.Immutable is unavailable on net48 (R23/R24) without an extra NuGet, so
-    // we use copy-on-write: writers build a brand-new HashSet and swap the volatile
-    // reference atomically; readers only ever see a fully-built, never-mutated instance.
+
+    // Copy-on-write: writers replace the complete set atomically, readers never see
+    // a partially-mutated collection.
     private volatile HashSet<string> _disabledTools = new();
     private bool _readOnlyMode;
 
@@ -63,9 +55,7 @@ public class CortexRouter
 
     /// <summary>
     /// Write-named tools vetted for inline UI-thread execution: they open no
-    /// Transaction and show no Revit UI (verified at adoption time). The inline
-    /// path runs OUTSIDE a Revit API context (modeless WPF handlers), where a
-    /// Transaction would throw — keep this list minimal and audited.
+    /// Transaction and show no Revit UI. Keep this list minimal and audited.
     /// </summary>
     private static readonly HashSet<string> InlineUiThreadAllowedTools =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -87,20 +77,13 @@ public class CortexRouter
         public bool Declared { get; }
     }
 
-    // Cached license decision gate. Null = no gating (today's behavior, and the
-    // best-effort fallback when LicenseBootstrap.Init fails). Evaluated at bootstrap
-    // + on explicit refresh, NEVER per Route() call.
-    private readonly Licensing.LicenseGate? _licenseGate;
-
     public CortexRouter(CortexSession session, IDocumentAnalyzer analyzer,
-        AuditLogger? auditLogger = null, ErrorReporter? errorReporter = null,
-        Licensing.LicenseGate? licenseGate = null)
+        AuditLogger? auditLogger = null, ErrorReporter? errorReporter = null)
     {
         _session = session;
         _analyzer = analyzer;
         _auditLogger = auditLogger ?? new AuditLogger();
         _errorReporter = errorReporter;
-        _licenseGate = licenseGate;
     }
 
     /// <summary>
@@ -185,16 +168,6 @@ public class CortexRouter
                 $"Tool '{toolName}' is disabled",
                 suggestion: "Enable it in RevitCortex Settings > Tools");
 
-        // License gate (additive). Cached state; null gate = no gating. Blocks only write
-        // tools when the license is Expired/Invalid — read-only tools stay available
-        // (graceful degradation, spec §6). Reuses IsToolReadOnly (no new classification).
-        // PermissionDenied (there is no LicenseExpired code) with "License expired" in the
-        // message so the UI/agent tells this apart from user-chosen read-only mode.
-        if (_licenseGate != null && !_licenseGate.Allows(toolName, IsToolReadOnly))
-            return CortexResult<object>.Fail(CortexErrorCode.PermissionDenied,
-                UI.Localization.T("license.gate_blocked", toolName),
-                suggestion: UI.Localization.T("license.gate_suggestion"));
-
         if (tool.RequiresDocument && _session.Store.Get<object>("activeDocument") == null)
             return CortexResult<object>.Fail(CortexErrorCode.InvalidInput,
                 "No document open in Revit",
@@ -205,7 +178,7 @@ public class CortexRouter
                 $"Tool '{toolName}' is not available for this document",
                 suggestion: "This tool requires specific document features (e.g., worksets, phases)");
 
-        // Read-only mode: block write tools
+        // User-controlled read-only mode is the only global write gate in this fork.
         if (_readOnlyMode && !IsToolReadOnly(toolName))
             return CortexResult<object>.Fail(CortexErrorCode.PermissionDenied,
                 $"Tool '{toolName}' is blocked in read-only mode",
@@ -229,8 +202,6 @@ public class CortexRouter
                 _auditLogger.LogWithPerf(toolName, BuildInputSummary(toolName, input),
                     cached.Success, cached.Error?.Code, elementsAffected: 0,
                     durationMs: stopwatch.ElapsedMilliseconds,
-                    // The entry's stored estimate: re-serializing the result on every
-                    // hit would defeat the point of caching it.
                     responseBytes: cachedBytes,
                     errorMessage: cached.Error?.Message);
                 return cached;
@@ -239,13 +210,8 @@ public class CortexRouter
 
         try
         {
-            // Dispatch path:
-            //  - From a background thread (socket worker, listener, etc.):
-            //    go through ExternalEvent so the tool runs on Revit's UI
-            //    thread (Revit API requirement).
-            //  - From the UI thread itself (e.g. PowerBiExportWindow's
-            //    "Esporta" button handler): run inline. Going through
-            //    ExternalEvent here would deadlock — see _uiThreadId comment.
+            // Background callers go through ExternalEvent so the tool runs in a
+            // valid Revit API context. UI-thread callers run inline only when safe.
             bool onUiThread = _dispatcher != null
                 && System.Threading.Thread.CurrentThread.ManagedThreadId == _uiThreadId;
 
@@ -257,9 +223,6 @@ public class CortexRouter
             else if (onUiThread && !IsToolReadOnly(toolName)
                      && !InlineUiThreadAllowedTools.Contains(toolName))
             {
-                // The inline path runs on the UI thread but outside a Revit API
-                // context: a tool opening a Transaction here would throw inside
-                // Revit. Only read-only tools and the vetted allowlist may pass.
                 result = CortexResult<object>.Fail(CortexErrorCode.PermissionDenied,
                     $"Tool '{toolName}' cannot run inline on the UI thread outside a Revit API context",
                     suggestion: "Call the tool through the MCP/TCP bridge so it is dispatched via ExternalEvent.");
@@ -271,9 +234,7 @@ public class CortexRouter
         }
         catch (Exception ex)
         {
-            // Route-wide backstop: NOTHING may escape Route unstructured —
-            // an escaping exception would skip audit + telemetry and surface
-            // as a raw JSON-RPC -32603 (paid-readiness spec, P1 finding).
+            // Nothing may escape Route as a raw exception.
             System.Diagnostics.Trace.WriteLine(
                 $"[RevitCortex] Route('{toolName}') unhandled: {ex}");
             result = CortexResult<object>.Fail(CortexErrorCode.Unknown,
@@ -282,19 +243,13 @@ public class CortexRouter
         }
         finally
         {
-            // Reset only the per-batch "Yes to All" flag after each tool. AutoMode
-            // ("Auto") must persist across tool calls until the user clicks Stop Auto
-            // or the document is reinitialized — calling ResetApproveAll() here would
-            // clear AutoMode too and re-prompt on every subsequent destructive op.
+            // Reset only the per-batch Yes-to-All flag. Auto mode persists until
+            // explicitly stopped or the document is reinitialized.
             _session.ApproveAll = false;
         }
 
-        // One serialization serves both the audit byte count and the cache entry's
-        // estimate — Set used to re-serialize the same result a second time.
         var responseBytes = EstimateResponseBytes(result);
 
-        // Only cache successful results. Failures must always re-execute so a
-        // transient error doesn't get stuck in the cache.
         if (cacheable != null && paramHash != null && result.Success)
         {
             _session.Cache.Set(toolName, paramHash, cacheable.CacheScope,
@@ -303,8 +258,8 @@ public class CortexRouter
 
         stopwatch.Stop();
 
-        // Audit log (schema v2): every invocation, with duration and response size.
-        // send_code_to_revit also gets a code snapshot (truncated) + SHA-256 hash.
+        // Audit every invocation. send_code_to_revit also gets a truncated code
+        // snapshot plus SHA-256 hash.
         var inputSummary = BuildInputSummary(toolName, input);
         string? codeSnippet = null;
         string? codeHash = null;
@@ -328,9 +283,6 @@ public class CortexRouter
 
         try
         {
-            // Telemetry rides the same single capture point as the audit log.
-            // Cache hits above return earlier on purpose: a cached failure is
-            // the same occurrence replayed, counting it would inflate stats.
             _errorReporter?.Record(toolName, result.Success,
                 result.Error?.Code.ToString(), result.Error?.Message,
                 failureStage: "tool",
@@ -371,10 +323,6 @@ public class CortexRouter
     /// </summary>
     internal static string HashParams(JObject input)
     {
-        // Emit the canonical JSON directly (object keys sorted recursively, no whitespace)
-        // instead of building a parallel sorted JToken tree and deep-cloning every leaf.
-        // The byte output is identical to the previous Canonicalize(...).ToString(Formatting.None),
-        // so cache keys are unchanged (locked by CortexRouterHashStabilityTests).
         var sw = new System.IO.StringWriter(new StringBuilder(256),
             System.Globalization.CultureInfo.InvariantCulture);
         using (var writer = new JsonTextWriter(sw) { Formatting = Formatting.None })
@@ -455,8 +403,6 @@ public class CortexRouter
 
     private static string FormatValue(string name, JToken token)
     {
-        // send_code_to_revit and similar tools pass large C# snippets — log
-        // length only, never the body.
         if (token.Type == JTokenType.String &&
             (name == "code" || name == "snippet"))
         {
@@ -484,8 +430,6 @@ public class CortexRouter
     public void SetDispatcher(RevitThreadDispatcher dispatcher)
     {
         _dispatcher = dispatcher;
-        // SetDispatcher is called from OnStartup on the Revit UI thread, so
-        // capturing here gives us the right id to compare against in Route.
         _uiThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
     }
 
@@ -524,8 +468,6 @@ public class CortexRouter
 
     public void SetDisabledTools(IEnumerable<string> toolNames)
     {
-        // H27: build a new set, then swap the reference atomically — readers never observe
-        // a Clear/Add window.
         _disabledTools = new HashSet<string>(toolNames);
     }
 

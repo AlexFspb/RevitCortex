@@ -33,17 +33,8 @@ public class RevitCortexApp : IExternalApplication
 
     public static RevitCortexApp? Instance { get; private set; }
 
-    /// <summary>
-    /// Fired on the calling thread whenever the server starts, stops, or crashes.
-    /// Subscribers must marshal to the UI thread themselves if needed.
-    /// </summary>
     public event Action? ServiceStateChanged;
 
-    /// <summary>
-    /// Returns true only if the socket service flag is set AND a live TCP
-    /// connection to localhost:port succeeds. This catches cases where the
-    /// listener thread died unexpectedly while the flag remained true.
-    /// </summary>
     public bool IsServiceRunning
     {
         get
@@ -57,7 +48,6 @@ public class RevitCortexApp : IExternalApplication
             }
             catch
             {
-                // Listener is gone — sync internal flag so next call is fast
                 _socketService.Stop();
                 return false;
             }
@@ -73,20 +63,12 @@ public class RevitCortexApp : IExternalApplication
     {
         Instance = this;
 
-        // Roslyn (send_code_to_revit, net8+) needs Microsoft.CodeAnalysis 4.12 plus its
-        // System.Collections.Immutable / System.Reflection.Metadata 8.0 dependencies.
-        // Revit loads every add-in into ONE shared AssemblyLoadContext and does not probe
-        // our plugin folder for these, so a sibling add-in's older copy (or the missing
-        // 8.0 deps) breaks the bind with "Could not load Microsoft.CodeAnalysis 4.12.0.0".
-        // Serve our own bundled copies from the plugin folder so they always win.
         AppDomain.CurrentDomain.AssemblyResolve += ResolveBundledDependency;
 
         try
         {
-            // Create ribbon panel
             CreateRibbonPanel(application);
 
-            // Initialize session, router, and tools
             var store = new SessionStore();
             _session = new CortexSession(store);
             _session.ConfirmAction = (action, count, desc) =>
@@ -96,69 +78,42 @@ public class RevitCortexApp : IExternalApplication
             ConfirmationHelper.AutoModeChanged += OnAutoModeChanged;
             var analyzer = new DocumentAnalyzer();
 
-            // One audit logger for the whole plugin, bound to the active
-            // profile's audit path (separate file per prod/dev). Shared by the
-            // router and the execution handler so no code path falls back to
-            // AuditLogger()'s hardcoded prod default.
             var auditLogger = new AuditLogger(CortexEnvironment.Current.AuditLogPath);
 
             Telemetry.TelemetryBootstrap.Init(application);
 
-            // License gate: built before the router so it can be passed in. Best-effort —
-            // a null Gate means no gating (see LicenseBootstrap).
-            Licensing.LicenseBootstrap.Init(CortexEnvironment.Current);
-
             _router = new CortexRouter(_session, analyzer, auditLogger: auditLogger,
-                errorReporter: Telemetry.TelemetryBootstrap.Reporter,
-                licenseGate: Licensing.LicenseBootstrap.Gate);
+                errorReporter: Telemetry.TelemetryBootstrap.Reporter);
 
             var toolsAssembly = LoadToolsAssembly();
             if (toolsAssembly != null)
-            {
                 _router.RegisterToolsFromAssembly(toolsAssembly);
-            }
 
-            // Also scan the Plugin assembly itself: a few tools (Power BI Live
-            // auth/REST) live here because they depend on MSAL.NET which is
-            // referenced by the Plugin, not the Tools project.
             _router.RegisterToolsFromAssembly(Assembly.GetExecutingAssembly());
 
-            // Create thread dispatcher for Revit main thread execution
             var executionHandler = new ToolExecutionHandler(auditLogger);
             var externalEvent = ExternalEvent.Create(executionHandler);
             var dispatcher = new RevitThreadDispatcher(executionHandler, externalEvent);
             _router.SetDispatcher(dispatcher);
 
-            // Load disabled tools, read-only mode, and port from settings
             LoadDisabledTools();
             LoadReadOnlyMode();
             LoadPort();
 
-            // Fire-and-forget update check against the public metadata repo.
-            // When an update is found, the UpdateAvailable event wakes up the
-            // notification window (or OnIdling shows it if Revit is already idle).
             RevitCortex.Plugin.Updates.UpdateChecker.UpdateAvailable += OnUpdateAvailable;
             RevitCortex.Plugin.Updates.UpdateChecker.CheckInBackground();
 
-            // Create the PBI action ExternalEvent (registered once at startup,
-            // used whenever the Power BI Desktop visual sends a pbi-* request)
             _pbiActionHandler = new PbiActionEventHandler();
             _pbiActionEvent = ExternalEvent.Create(_pbiActionHandler);
 
-            // Create socket service but do NOT start automatically
             _socketService = new SocketService(_router, _port);
 
-            // Listen for document events
             application.ControlledApplication.DocumentOpened += OnDocumentOpened;
             application.ControlledApplication.DocumentClosing += OnDocumentClosing;
 
-            // Subscribe the tool-result cache to model-change events. The watcher
-            // bumps DocumentVersion and drops Document/Transaction entries so
-            // cached reads can never outlive the model state they describe.
             _cacheWatcher = new DocumentChangeWatcher(_session);
             _cacheWatcher.Attach(application.ControlledApplication);
 
-            // Capture UIApplication when Revit is idle (needed for ViewActivated hook)
             application.Idling += OnIdling;
 
             System.Diagnostics.Trace.WriteLine(
@@ -196,7 +151,6 @@ public class RevitCortexApp : IExternalApplication
             _cacheWatcher?.Dispose();
             _cacheWatcher = null;
 
-            // Delete all TEMP scripts generated during this session
             CleanupTempScripts();
         }
         catch (Exception ex)
@@ -210,12 +164,10 @@ public class RevitCortexApp : IExternalApplication
     {
         if (_socketService != null && !_socketService.IsRunning)
         {
-            // Initialize session with active document if available
             if (activeDocument != null && _router != null)
             {
                 var locale = LocaleDetector.Detect(activeDocument);
                 _router.OnDocumentChanged(activeDocument, locale);
-                // Re-store UIApplication after session reinitialize (needed by send_code_to_revit)
                 if (_uiApplication != null)
                     _session?.Store.Set("uiApplication", _uiApplication);
                 System.Diagnostics.Trace.WriteLine(
@@ -224,14 +176,9 @@ public class RevitCortexApp : IExternalApplication
 
             _socketService.Start();
 
-            // Start PBI Desktop → Revit HTTP listener on port 27016
             if (_pbiSelectListener == null && _pbiActionHandler != null && _pbiActionEvent != null)
             {
                 var handler = _pbiActionHandler;
-                // Bind the event so the handler can self-raise after every enqueue.
-                // This eliminates the previous shared-pending-state race: each
-                // listener callback now hits the handler's queue, gets its own
-                // completion event, and times out without polluting later requests.
                 handler.BindExternalEvent(_pbiActionEvent);
 
                 _pbiSelectListener = new PbiSelectHttpListener(
@@ -240,9 +187,6 @@ public class RevitCortexApp : IExternalApplication
                         color:           items         => _uiApplication == null ? null : handler.DispatchColor(items),
                         resetOverrides:  ()            => _uiApplication == null ? null : handler.DispatchReset(),
                         createView:      (ids, name)   => _uiApplication == null ? null : handler.DispatchCreateView(ids, name),
-                        // Rich callbacks: take UniqueIds + DocumentTitle into account.
-                        // Returns a structured (result, errorCode, errorMessage) tuple so
-                        // wrong_document validation can be surfaced cleanly to the visual.
                         selectionRich:   input => RichDispatch(handler, input, isCreateView: false),
                         createViewRich:  input => RichDispatch(handler, input, isCreateView: true)),
                     port: 27016);
@@ -263,11 +207,6 @@ public class RevitCortexApp : IExternalApplication
         ServiceStateChanged?.Invoke();
     }
 
-    /// <summary>
-    /// Shared rich-dispatch shim: forwards both Select and CreateView to the
-    /// handler's *Rich overload, then unpacks Request.Error into the
-    /// structured listener response.
-    /// </summary>
     private PbiSelectHttpListener.RichRequestResult RichDispatch(
         PbiActionEventHandler handler,
         PbiSelectHttpListener.RichRequestInput input,
@@ -280,7 +219,6 @@ public class RevitCortexApp : IExternalApplication
             ? handler.DispatchCreateViewRich(input.ElementIds, input.UniqueIds, input.ViewName, input.DocumentTitle)
             : handler.DispatchSelectionRich(input.ElementIds, input.UniqueIds, input.Action, input.DocumentTitle);
 
-        // Request.Error is "code:message"; parse and forward.
         if (!string.IsNullOrEmpty(req.Error))
         {
             var sep = req.Error!.IndexOf(':');
@@ -298,16 +236,10 @@ public class RevitCortexApp : IExternalApplication
         _connectButton.Image = IconFactory.CreateConnectionIcon(16, active);
         _connectButton.LargeImage = IconFactory.CreateConnectionIcon(32, active);
         _connectButton.ToolTip = active
-            ? $"RevitCortex Premium running on port {_port} — click to stop"
-            : "Start RevitCortex Premium server";
+            ? $"RevitCortex 2026 running on port {_port} — click to stop"
+            : "Start RevitCortex 2026 server";
     }
 
-    /// <summary>
-    /// Called when Auto mode is activated or deactivated. Shows a non-modal
-    /// floating window while Auto is active and closes it when Auto stops.
-    /// Marshals to the UI thread since the activating "Auto" click and the
-    /// deactivation paths can originate off the UI thread.
-    /// </summary>
     private void OnAutoModeChanged(bool active)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
@@ -319,7 +251,7 @@ public class RevitCortexApp : IExternalApplication
 
         if (active)
         {
-            if (_autoModeWindow != null) return; // already showing
+            if (_autoModeWindow != null) return;
             try
             {
                 var revitHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
@@ -337,17 +269,11 @@ public class RevitCortexApp : IExternalApplication
         }
         else
         {
-            // Auto turned off from somewhere other than the window (e.g. document
-            // close). Close without re-triggering the stop callback.
             _autoModeWindow?.CloseFromHost();
             _autoModeWindow = null;
         }
     }
 
-    /// <summary>
-    /// Forwards an Auto-mode auto-approval to the floating window. Marshals to
-    /// the UI thread because the signal originates on the tool-execution thread.
-    /// </summary>
     private void OnAutoModeActivity()
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
@@ -355,11 +281,6 @@ public class RevitCortexApp : IExternalApplication
         dispatcher.BeginInvoke((System.Action)(() => _autoModeWindow?.RegisterActivity()));
     }
 
-    /// <summary>
-    /// The floating window asked to stop Auto mode (button or X). Turn Auto off
-    /// on the session; the resulting AutoModeChanged(false) is a no-op for the
-    /// window since it is already closing.
-    /// </summary>
     private void OnAutoModeWindowStopRequested()
     {
         if (_session != null)
@@ -369,32 +290,26 @@ public class RevitCortexApp : IExternalApplication
 
     private void CreateRibbonPanel(UIControlledApplication application)
     {
-        // Dev builds get a distinct ribbon tab/panel name so a side-by-side
-        // prod install never collides ("two addins, same tab name" is a hard
-        // Revit conflict, not a cosmetic issue).
-        string panelTitle = CortexEnvironment.Current.IsDev ? "RevitCortex Premium Dev" : "RevitCortex Premium";
+        string panelTitle = CortexEnvironment.Current.IsDev ? "RevitCortex 2026 Dev" : "RevitCortex 2026";
         RibbonPanel panel = application.CreateRibbonPanel(panelTitle);
         string assemblyLocation = Assembly.GetExecutingAssembly().Location;
 
-        // Connection toggle button
         var connectBtnData = new PushButtonData(
             "ID_CORTEX_TOGGLE", "Cortex\r\nSwitch",
             assemblyLocation, "RevitCortex.Plugin.Commands.ToggleConnection");
-        connectBtnData.ToolTip = "Start RevitCortex Premium server";
+        connectBtnData.ToolTip = "Start RevitCortex 2026 server";
         connectBtnData.Image = IconFactory.CreateConnectionIcon(16, false);
         connectBtnData.LargeImage = IconFactory.CreateConnectionIcon(32, false);
         _connectButton = panel.AddItem(connectBtnData) as Autodesk.Revit.UI.PushButton;
 
-        // Settings button
         var settingsBtn = new PushButtonData(
             "ID_CORTEX_SETTINGS", "Settings",
             assemblyLocation, "RevitCortex.Plugin.Commands.OpenSettings");
-        settingsBtn.ToolTip = "RevitCortex Premium settings";
+        settingsBtn.ToolTip = "RevitCortex 2026 settings";
         settingsBtn.Image = IconFactory.CreateSettingsIcon(16);
         settingsBtn.LargeImage = IconFactory.CreateSettingsIcon(32);
         panel.AddItem(settingsBtn);
 
-        // Power BI export button
         var powerBiBtn = new PushButtonData(
             "ID_CORTEX_POWERBI", "Power BI\r\nExport",
             assemblyLocation, "RevitCortex.Plugin.Commands.OpenPowerBiExport");
@@ -407,31 +322,16 @@ public class RevitCortexApp : IExternalApplication
         powerBiBtn.LargeImage = IconFactory.CreatePowerBiIcon(32);
         panel.AddItem(powerBiBtn);
 
-        // Send support report button
         var supportBtn = new PushButtonData(
-            "ID_CORTEX_SUPPORT", "Send log\r\nto support",
+            "ID_CORTEX_SUPPORT", "Diagnostic\r\nReport",
             assemblyLocation, "RevitCortex.Plugin.Commands.SendSupportReport");
-        supportBtn.ToolTip = "Send a bug report to RevitCortex Premium support";
+        supportBtn.ToolTip = "Create a RevitCortex 2026 diagnostic report";
         supportBtn.LongDescription =
-            "Collects recent audit logs, token-usage log, settings, and the most recent " +
-            "Revit journal into a ZIP on the desktop, then opens a pre-filled Outlook " +
-            "message addressed to support. Add a short description of the problem " +
-            "and click Send. No personal data is sent beyond what's in the logs.";
+            "Collects diagnostic logs, settings and the recent Revit journal into a local ZIP " +
+            "report and opens it in Explorer. Nothing is uploaded or emailed automatically.";
         supportBtn.Image = IconFactory.CreateSupportIcon(16);
         supportBtn.LargeImage = IconFactory.CreateSupportIcon(32);
         panel.AddItem(supportBtn);
-
-        // License & Account button
-        var licenseBtn = new PushButtonData(
-            "ID_CORTEX_LICENSE", "License &\r\nAccount",
-            assemblyLocation, "RevitCortex.Plugin.Commands.OpenLicense");
-        licenseBtn.ToolTip = "View license status and activate RevitCortex Premium";
-        licenseBtn.Image = IconFactory.CreateLicenseIcon(16);
-        licenseBtn.LargeImage = IconFactory.CreateLicenseIcon(32);
-        panel.AddItem(licenseBtn);
-
-        // Note: Auto mode is stopped via a floating AutoModeWindow shown while
-        // active (see OnAutoModeChanged), not a ribbon button.
     }
 
     private void OnDocumentOpened(object? sender, DocumentOpenedEventArgs args)
@@ -442,7 +342,6 @@ public class RevitCortexApp : IExternalApplication
         var locale = LocaleDetector.Detect(doc);
         _router!.OnDocumentChanged(doc, locale);
 
-        // Re-store UIApplication after session reinitialize (needed by send_code_to_revit)
         if (_uiApplication != null)
             _session?.Store.Set("uiApplication", _uiApplication);
 
@@ -455,7 +354,6 @@ public class RevitCortexApp : IExternalApplication
     {
         try
         {
-            // Stop the TCP server to prevent stale commands reaching a different document
             if (_socketService != null && _socketService.IsRunning)
             {
                 _socketService.Stop();
@@ -465,9 +363,6 @@ public class RevitCortexApp : IExternalApplication
                     "[RevitCortex] Server stopped: document closing");
             }
 
-            // Clear session state (store, capabilities, locale). Reinitialize
-            // sets AutoMode=false on the session; notify the UI so the floating
-            // Auto mode window closes with the document.
             _session?.Reinitialize(new Core.Discovery.DocumentCapabilities(), "en");
             ConfirmationHelper.NotifyAutoModeChanged(false);
 
@@ -486,15 +381,11 @@ public class RevitCortexApp : IExternalApplication
         if (_uiApplication != null) return;
         _uiApplication = sender as UIApplication;
 
-        // Hook ViewActivated to detect document switches
         if (_uiApplication != null)
         {
             _uiApplication.ViewActivated += OnViewActivated;
-
-            // Store UIApplication in session for send_code_to_revit
             _session?.Store.Set("uiApplication", _uiApplication);
 
-            // If a document is already open, initialize the session now
             var doc = _uiApplication.ActiveUIDocument?.Document;
             if (doc != null && _router != null &&
                 _session?.Store.Get<object>("activeDocument") == null)
@@ -505,19 +396,13 @@ public class RevitCortexApp : IExternalApplication
                     $"[RevitCortex] Session initialized from Idling: {doc.Title}, locale: {locale}");
             }
 
-            // If the update check already completed before Idling fired, show now.
             if (RevitCortex.Plugin.Updates.UpdateChecker.Latest?.HasUpdate == true)
                 ShowUpdateNotification();
         }
     }
 
-    /// <summary>
-    /// Called on a background thread when the update check finds a newer version.
-    /// Marshals to the UI thread to show the notification window.
-    /// </summary>
     private void OnUpdateAvailable()
     {
-        // If Revit isn't idle yet, OnIdling will handle it.
         if (_uiApplication == null) return;
 
         System.Windows.Application.Current?.Dispatcher.BeginInvoke(
@@ -546,13 +431,11 @@ public class RevitCortexApp : IExternalApplication
         var doc = e.CurrentActiveView?.Document;
         if (doc == null || _router == null) return;
 
-        // Only update if document changed
         var currentDoc = _session?.Store.Get<object>("activeDocument");
         if (currentDoc != doc)
         {
             var locale = LocaleDetector.Detect(doc);
             _router.OnDocumentChanged(doc, locale);
-            // Re-store UIApplication after session reinitialize (needed by send_code_to_revit)
             if (_uiApplication != null)
                 _session?.Store.Set("uiApplication", _uiApplication);
             System.Diagnostics.Trace.WriteLine(
@@ -627,7 +510,7 @@ public class RevitCortexApp : IExternalApplication
         catch (Exception ex)
         {
             System.Diagnostics.Trace.WriteLine(
-                $"[RevitCortex] Could not load disabled tools: {ex.Message}");
+                $"[RevitCortex] Could not load disabled tools setting: {ex.Message}");
         }
     }
 
@@ -665,14 +548,6 @@ public class RevitCortexApp : IExternalApplication
         }
     }
 
-    /// <summary>
-    /// Resolves Roslyn (Microsoft.CodeAnalysis*) and its System.Collections.Immutable /
-    /// System.Reflection.Metadata 8.0 dependencies from the plugin's own folder. Revit's
-    /// shared AssemblyLoadContext does not probe our folder for these, so without this a
-    /// sibling add-in's older copy can win the bind (or the 8.0 deps go unfound), which
-    /// breaks send_code_to_revit's Roslyn compiler on Revit 2025+.
-    /// Scoped to the Roslyn dependency graph so it never hijacks Revit or other add-ins.
-    /// </summary>
     private static Assembly? ResolveBundledDependency(object? sender, ResolveEventArgs args)
     {
         var requested = new AssemblyName(args.Name).Name;

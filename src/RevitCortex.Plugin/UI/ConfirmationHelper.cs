@@ -5,7 +5,7 @@ using RevitCortex.Core.Session;
 namespace RevitCortex.Plugin.UI;
 
 /// <summary>
-/// Shows a native Revit TaskDialog before destructive/bulk operations.
+/// Shows confirmation UI before destructive/bulk operations.
 /// Called inside tool Execute() after parameter validation but BEFORE opening Transaction.
 /// </summary>
 public static class ConfirmationHelper
@@ -19,9 +19,9 @@ public static class ConfirmationHelper
     /// <returns>true = Yes, false = No, null = Yes to All.</returns>
     public static bool? Confirm(string action, int elementCount, string? description)
     {
-        if (elementCount <= 0) return true; // Nothing to do
+        if (elementCount <= 0) return true;
 
-        var dialog = new TaskDialog("RevitCortex Premium Confirmation")
+        var dialog = new TaskDialog("RevitCortex 2026 Confirmation")
         {
             MainInstruction = $"About to {action} ({elementCount} element(s))",
             CommonButtons = TaskDialogCommonButtons.None
@@ -40,29 +40,20 @@ public static class ConfirmationHelper
             "Cancel this operation");
 
         var result = dialog.Show();
-        if (result == TaskDialogResult.CommandLink2) return null;  // Yes to All
-        if (result == TaskDialogResult.CommandLink1) return true;  // Yes
-        if (result == TaskDialogResult.CommandLink3) return AutoSentinel; // Auto
-        return false; // No (or closed)
+        if (result == TaskDialogResult.CommandLink2) return null;
+        if (result == TaskDialogResult.CommandLink1) return true;
+        if (result == TaskDialogResult.CommandLink3) return AutoSentinel;
+        return false;
     }
 
-    /// <summary>
-    /// Sentinel value returned by Confirm() when the user clicks "Auto".
-    /// CortexSession.RequestConfirmation checks for this value and sets AutoMode.
-    /// </summary>
     public const bool AutoSentinel = true;
 
-    /// <summary>
-    /// Variant wired to a CortexSession: sets session.AutoMode = true when Auto is clicked
-    /// and fires AutoModeChanged so the ribbon can update its button visibility immediately.
-    /// This overload is used by RevitCortexApp instead of the bare Confirm delegate.
-    /// </summary>
     public static bool? ConfirmWithSession(string action, int elementCount, string? description,
         CortexSession session)
     {
         if (elementCount <= 0) return true;
 
-        var dialog = new TaskDialog("RevitCortex Premium Confirmation")
+        var dialog = new TaskDialog("RevitCortex 2026 Confirmation")
         {
             MainInstruction = $"About to {action} ({elementCount} element(s))",
             CommonButtons = TaskDialogCommonButtons.None
@@ -81,59 +72,43 @@ public static class ConfirmationHelper
             "Cancel this operation");
 
         var result = dialog.Show();
-        if (result == TaskDialogResult.CommandLink2) return null;  // Yes to All
-        if (result == TaskDialogResult.CommandLink1) return true;  // Yes
+        if (result == TaskDialogResult.CommandLink2) return null;
+        if (result == TaskDialogResult.CommandLink1) return true;
         if (result == TaskDialogResult.CommandLink3)
         {
             session.AutoMode = true;
             AutoModeChanged?.Invoke(true);
-            return true; // proceed with current operation
+            return true;
         }
-        return false; // No (or closed)
+        return false;
     }
 
     /// <summary>
-    /// Shows a confirmation dialog for critical operations. Batch approvals are
-    /// intentionally unavailable here because these actions require an explicit
-    /// per-operation decision.
+    /// Shows the critical confirmation window. The user can enable "Allow auto-run".
+    /// When enabled, the Yes button counts down from 10 seconds and approves automatically
+    /// at zero. The preference is session-scoped and resets when Revit restarts.
     /// </summary>
     public static bool? ConfirmCritical(string action, int elementCount, string? description)
     {
         if (elementCount <= 0) return true;
 
-        var dialog = new TaskDialog("RevitCortex Critical Confirmation")
+        try
         {
-            MainInstruction = $"About to {action} ({elementCount} element(s))",
-            CommonButtons = TaskDialogCommonButtons.None
-        };
-
-        if (!string.IsNullOrEmpty(description))
-            dialog.MainContent = description;
-
-        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Yes",
-            "Approve this operation only");
-        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "No",
-            "Cancel this operation");
-
-        var result = dialog.Show();
-        if (result == TaskDialogResult.CommandLink1) return true;
-        return false;
+            var dialog = new CriticalConfirmationWindow(action, elementCount, description);
+            return dialog.ShowDialog() == true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine(
+                $"[RevitCortex] Critical confirmation window failed: {ex.Message}");
+            return false;
+        }
     }
 
-    /// <summary>
-    /// Fired when Auto mode is activated or deactivated via the confirmation dialog.
-    /// The ribbon subscribes to this to show/hide the "Stop Auto" button immediately.
-    /// </summary>
     public static event Action<bool>? AutoModeChanged;
 
-    /// <summary>
-    /// Raises AutoModeChanged. Call this from outside ConfirmationHelper (e.g. StopAutoMode command).
-    /// </summary>
     public static void NotifyAutoModeChanged(bool active) => AutoModeChanged?.Invoke(active);
 
-    /// <summary>
-    /// Returns a standard cancelled response for CortexResult.
-    /// </summary>
     public static Core.Results.CortexResult<object> CancelledResult()
     {
         return Core.Results.CortexResult<object>.Fail(

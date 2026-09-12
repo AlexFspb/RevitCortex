@@ -28,7 +28,6 @@ internal static class TelemetryBootstrap
             sender.KnownIssueMatched += m =>
                 System.Diagnostics.Trace.WriteLine(
                     $"[RevitCortex] Known issue matched: {m.IssueId} fixed in {m.FixVersion}");
-                // Visual toast/badge lands in Plan 3 (needs the Worker of Plan 2 anyway).
 
             int revitYear = 0;
             try { revitYear = int.Parse(application.ControlledApplication.VersionNumber); }
@@ -43,17 +42,11 @@ internal static class TelemetryBootstrap
                 OsMajor = "Windows " + Environment.OSVersion.Version.ToString(2),
                 Locale = Localization.Locale
             };
-            // PRIVACY (Task 9 security review F3): OsMajor MUST be derived from
-            // Version.ToString(2) (major.minor only, e.g. "Windows 10.0"). It must
-            // NEVER be Environment.MachineName or OSVersion.VersionString — a full
-            // machine name would violate TelemetryEvent's own no-host-identity
-            // contract. A reviewer of Task 13 MUST confirm this line is unchanged.
 
             var reporter = new ErrorReporter(config, queue, sender, env);
             reporter.RepeatedFailureDetected += (fp, count) =>
                 System.Diagnostics.Trace.WriteLine(
                     $"[RevitCortex] Repeated failure {fp} x{count}");
-                // Prompt UI (support-report offer) lands in Plan 3.
 
             sender.Start();
             Config = config;
@@ -75,7 +68,7 @@ internal static class TelemetryBootstrap
             var config = Config;
             if (config == null || !config.NeedsConsentPrompt) return;
 
-            var dlg = new TaskDialog("RevitCortex Premium")
+            var dlg = new TaskDialog("RevitCortex 2026")
             {
                 MainInstruction = Localization.T("telemetry.consent_instruction"),
                 MainContent = Localization.T("telemetry.consent_body"),
@@ -92,12 +85,12 @@ internal static class TelemetryBootstrap
             if (r == TaskDialogResult.CommandLink1) config.MarkConsent(true);
             else if (r == TaskDialogResult.CommandLink2) config.MarkConsent(false);
         }
-        catch { /* consent prompt must never block startup */ }
+        catch { }
     }
 
     public static void Shutdown()
     {
-        try { _sender?.Dispose(); } catch { } // Dispose = best-effort final flush
+        try { _sender?.Dispose(); } catch { }
         _sender = null;
         Reporter = null;
     }

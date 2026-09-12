@@ -1,31 +1,46 @@
-# 10 — send_code_to_revit Escalation
+# 10 — `send_code_to_revit` Escalation (Revit 2026)
 
-**Scope:** Quando proporre uno script C# custom invece dei tool nativi.
-**Sources:** CLAUDE.md §"send_code_to_revit", docs/SECURITY.md §"Sandbox"
-**Last verified:** 2026-05-25
+**Scope:** When to use custom C# instead of dedicated RevitCortex tools.
+**Target:** Autodesk Revit 2026 only.
+**Last verified for fork scope:** 2026-09-11.
 
-## Regola fondamentale
+## Fundamental rule
 
-**MAI usare `send_code_to_revit` autonomamente per bulk/batch operations.** Sempre chiedere consenso esplicito all'utente prima.
+Prefer dedicated RevitCortex tools. `send_code_to_revit` is a **last-resort** path for operations not covered by a dedicated tool.
 
-## Frase standard di consenso
+The MCP server instructions must not select arbitrary C# autonomously when a dedicated tool can perform the task.
 
-> "Posso usare `send_code_to_revit` per eseguire questa operazione in modo più efficiente con uno script C#, oppure preferisci che proceda con i tool standard (potrebbe richiedere più chiamate)?"
+## Before script execution
 
-Solo dopo risposta affermativa, procedere con lo script.
+1. Confirm that no dedicated tool covers the operation adequately.
+2. Explain the script approach when user consent is required by the client workflow.
+3. `EnableCodeExecution` must be enabled in RevitCortex settings.
+4. The code must pass `CodeSandbox.Validate`.
+5. Critical confirmation is requested inside Revit before execution.
 
-## Decision rules
+## Critical confirmation in this fork
 
-Motivi per cui chiedere e non assumere:
+Revit 2026 uses a dedicated critical confirmation window for `send_code_to_revit`.
 
-1. Gli script bypassano il safety layer nativo (dryRun, conferme).
-2. DLL conflicts (archintelligence, BIM360, altri add-in) possono crashare silenziosamente `send_code_to_revit`.
-3. L'utente può preferire tracciabilità via discrete tool calls.
-4. **NON chiamare `Document.EditFamily` da `ExternalEvent`**: i dialog modali deadlockano Revit (riferimento: incident b292ace su Snowdon Towers).
+The user has two manual actions:
+
+- **Yes** — execute the current script immediately.
+- **No** — cancel the current script.
+
+The window also includes **Allow auto-run**:
+
+- off by default when Revit starts;
+- when enabled, the Yes action displays a visible **10-second countdown**;
+- at zero, the current script is approved automatically;
+- Yes/No remain available while the countdown runs;
+- the preference is process/session-only and resets when Revit closes.
+
+Auto-run does **not** bypass sandbox validation, code-execution settings, audit logging, router permissions, or read-only mode.
 
 ## Sandbox
 
-Namespace **vietati** dal sandbox (causano `CortexErrorCode.PermissionDenied`):
+Blocked namespace patterns include:
+
 - `System.IO`
 - `System.Net`
 - `System.Diagnostics.Process`
@@ -33,24 +48,37 @@ Namespace **vietati** dal sandbox (causano `CortexErrorCode.PermissionDenied`):
 - `System.Reflection.Emit`
 - `System.Runtime.InteropServices`
 
-Validazione in `CodeSandbox.Validate(string code)` (`RevitCortex.Core`).
+Validation is performed by `CodeSandbox.Validate(string code)`.
 
-## Naming variabili
+## Revit 2026 globals
 
-- Document: `document` (non `doc`, `Doc`, `uidoc`).
-- UIDocument: `new UIDocument(document)`.
-- ElementId: `.Value` su R2024+, `.IntegerValue` su R2023.
+Available script globals:
+
+- `document` — active `Document`
+- `uiDocument` — active `UIDocument`
+- `app` — Revit `Application`
+
+Use `ElementId.Value` for Revit 2026 API code.
+
+## Transaction modes
+
+`send_code_to_revit` supports the existing transaction modes such as `auto`, `none`, and `group`. Do not open conflicting nested Revit transactions from user code when the selected mode already owns the transaction boundary.
+
+## Important limitation
+
+Do not call modal family editing flows such as `Document.EditFamily` from the external-event execution context. Modal Revit API flows can deadlock the MCP request path.
 
 ## Required checks
 
-- [ ] Consenso utente ottenuto.
-- [ ] Alternativa nativa proposta come opzione A.
-- [ ] Nessuna chiamata `EditFamily` da `ExternalEvent`.
-- [ ] Sandbox validation in `CodeSandbox.Validate` non bypassata.
+- [ ] Dedicated-tool alternative checked first.
+- [ ] Code execution enabled.
+- [ ] Sandbox validation remains active.
+- [ ] No prohibited modal `EditFamily` flow.
+- [ ] Critical confirmation is not bypassed in code.
+- [ ] Auto-run, if enabled by the user, is treated as session-only approval behavior.
 
 ## Avoid
 
-- Non proporre autonomamente per >1 elemento senza consenso.
-- Non usare namespace IO/Net/Process.
-- Non chiamare `EditFamily` da `ExternalEvent`.
-- Non assumere che l'utente preferisca script: è opzione B di default.
+- Do not use custom C# just to save one ordinary dedicated-tool call.
+- Do not add persistence for `Allow auto-run` without an explicit product decision.
+- Do not describe auto-run as disabling security; it only automates the final critical approval after the visible countdown.

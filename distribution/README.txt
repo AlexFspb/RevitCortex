@@ -1,9 +1,20 @@
-RevitCortex - AI Assistant for Autodesk Revit
-==============================================
+RevitCortex 2026 - MCP Assistant for Autodesk Revit
+====================================================
 
-1. Right-click install.ps1 → "Run with PowerShell"
-2. Follow the on-screen prompts
-3. Restart Revit and Claude
+This fork supports Autodesk Revit 2026 only.
 
-To uninstall: Right-click uninstall.ps1 → "Run with PowerShell"
-For help: https://github.com/LuDattilo/RevitCortex/issues
+Install:
+1. Close Autodesk Revit 2026.
+2. Right-click install.ps1 and choose "Run with PowerShell".
+3. Follow the on-screen prompts.
+4. Restart Revit 2026 and your MCP client.
+
+Custom C# execution (send_code_to_revit) is disabled by default.
+When enabled, critical script execution is confirmed in Revit. The confirmation
+window includes an optional session-only "Allow auto-run" checkbox with a visible
+10-second countdown. The auto-run preference resets when Revit closes.
+
+To uninstall: right-click uninstall.ps1 and choose "Run with PowerShell".
+
+Project: https://github.com/AlexFspb/RevitCortex
+Upstream: https://github.com/LuDattilo/RevitCortex

@@ -1,16 +1,18 @@
-# RevitCortex — Catalogo Comandi (deprecato)
+# RevitCortex 2026 — Command Index
 
-> ⚠️ **Questo documento è deprecato.** Il riferimento completo e aggiornato di **tutti i 288 comandi** — con una descrizione e un esempio di prompt in linguaggio naturale per ciascuno, raggruppati per disciplina — si trova ora nella Guida Utente:
->
-> 👉 **[USER_GUIDE.md → Riferimento comandi per disciplina](USER_GUIDE.md#riferimento-comandi-per-disciplina)**
->
-> Mantenere due cataloghi separati portava a divergenze (questo si era fermato a 175 comandi). La Guida Utente è ora l'unica fonte di verità.
+This fork targets **Autodesk Revit 2026 only**.
 
-## Dove trovo cosa
+The command catalog changes as tools are added or removed, so this file intentionally does not publish a hard-coded tool count.
 
-| Cerchi… | Vai a |
-|---------|-------|
-| L'elenco di tutti i comandi con esempi di prompt | [USER_GUIDE.md → Riferimento comandi per disciplina](USER_GUIDE.md#riferimento-comandi-per-disciplina) |
-| Le firme tecniche compatte (per sviluppatori/LLM) | [`tool-schemas.txt`](../tool-schemas.txt) nella root del progetto |
-| I workflow operativi collaudati | [WORKFLOWS.md](../WORKFLOWS.md) |
-| Avvio, efficienza token, troubleshooting | [USER_GUIDE.md](USER_GUIDE.md) |
+## Sources of truth
+
+| Need | Source |
+|---|---|
+| End-user command/workflow documentation | [`USER_GUIDE.md`](USER_GUIDE.md) |
+| Current compact MCP signatures | [`tool-schemas.txt`](../tool-schemas.txt) |
+| Tested operational workflows | [`WORKFLOWS.md`](../WORKFLOWS.md) |
+| Fork target/build/safety rules | [`AGENTS.md`](../AGENTS.md) |
+
+For the current executable tool surface, the C# MCP wrappers and generated `tool-schemas.txt` are authoritative.
+
+Legacy upstream documentation may contain older hard-coded tool counts or multi-version Revit references. Those counts and version matrices are not authoritative for this Revit 2026 fork.

@@ -1,63 +1,56 @@
-# 22 — Net48 vs Net8+ Compatibility
+# 22 — Revit 2026 / .NET 8 Target Rules
 
-**Scope:** Compilare RevitCortex per Revit 2023→2027 (target framework variabile).
-**Sources:** CLAUDE.md §"Cross-Target Compatibility", memoria feedback_revit_target_range
-**Last verified:** 2026-05-25
+**Scope:** C# development for this RevitCortex fork.
+**Target:** Autodesk Revit **2026** only.
+**Framework:** `net8.0-windows10.0.19041.0`.
+**Last verified for fork scope:** 2026-09-11.
 
-## Matrix target framework
+## Target rule
 
-| Revit | Framework |
-|---|---|
-| 2023 | net48 |
-| 2024 | net48 |
-| 2025 | net8.0-windows |
-| 2026 | net8.0-windows |
-| 2027 | net10.0-windows |
+This fork intentionally removed the R23, R24, R25 and R27 plugin configurations. Do not spend development time preserving net48 or .NET 10 compatibility unless another Revit version is explicitly reintroduced later.
 
-## Feature C# vietate su net48
+Plugin and Tools configurations:
 
-| Feature | net8+ | net48 | Fix |
-|---|---|---|---|
-| `record` types | OK | **ERROR** CS0518 (`IsExternalInit` missing) | Usare `class` con readonly properties + constructor |
-| `Dictionary.GetValueOrDefault()` | OK | **ERROR** CS1061 | `TryGetValue` con ternario |
-| `init` accessors | OK | **ERROR** CS0518 | `{ get; }` + constructor |
-| `Index`/`Range` (`^1`, `..`) | OK | **ERROR** | `.Length - 1`, `.Substring()` |
-| `IAsyncEnumerable<T>` | OK | **ERROR** | Non disponibile su net48 |
-| `file`-scoped types | OK | **ERROR** | Usare `internal` |
-| Default interface methods | OK | **ERROR** | Spostare su abstract class o helper |
+- `Debug R26`
+- `Release R26`
 
-## Regola di verifica
+## Build checks
 
-Dopo OGNI modifica a un file C#:
+After changing shared Plugin or Tools C# code, validate Revit 2026:
 
-```bash
-dotnet build -c "Debug R25" src/RevitCortex.Plugin/RevitCortex.Plugin.csproj
-dotnet build -c "Debug R24" src/RevitCortex.Plugin/RevitCortex.Plugin.csproj
+```powershell
+dotnet build src/RevitCortex.Plugin/RevitCortex.Plugin.csproj -c "Debug R26"
+dotnet build src/RevitCortex.Tools/RevitCortex.Tools.csproj -c "Debug R26"
 ```
 
-Una build R25 verde **non garantisce** che R24 compili.
+Before release, also validate release builds:
 
-Prima del release: tutti i target R23→R27 devono buildare:
-```bash
-for cfg in "R23" "R24" "R25" "R26" "R27"; do
-  dotnet build -c "Debug $cfg" src/RevitCortex.Plugin/RevitCortex.Plugin.csproj
-done
+```powershell
+dotnet build src/RevitCortex.Plugin/RevitCortex.Plugin.csproj -c "Release R26"
+dotnet build src/RevitCortex.Tools/RevitCortex.Tools.csproj -c "Release R26"
 ```
 
-## R27 e .NET 10 SDK
+Build the MCP server separately:
 
-R27 richiede SDK ≥ 10. `global.json` pinna SDK 8 con `rollForward: latestMajor`. Senza SDK 10 installato: `NETSDK1045`. Runtime end-user: serve .NET 10 runtime (Revit 2027 lo ship).
+```powershell
+dotnet build src/RevitCortex.Server/RevitCortex.Server.csproj -c Release
+```
+
+## Revit 2026 API assumptions
+
+- Revit 2026 runs on .NET 8 in this project.
+- `ElementId.Value` is the expected modern API property.
+- Roslyn is the only custom C# execution path used by this fork; the old net48 CodeDom fallback is not part of the R26 path.
+- WPF UI code may use .NET 8 features supported by the Revit 2026 target.
 
 ## Required checks
 
-- [ ] Nessuna `record` type nei file C#.
-- [ ] Nessun `GetValueOrDefault()` su `Dictionary`.
-- [ ] Build R25 verde.
-- [ ] Build R24 verde.
-- [ ] Per release: anche R23, R26, R27 verdi.
+- [ ] Plugin builds with `Debug R26`.
+- [ ] Tools build with `Debug R26`.
+- [ ] Relevant unit tests pass.
+- [ ] Release changes also build with `Release R26`.
+- [ ] No documentation claims this fork supports another Revit version.
 
-## Avoid
+## If another Revit version is needed later
 
-- Non usare feature C# 9+ senza verificare net48.
-- Non assumere che R25 verde = R24 verde.
-- Non skippare la build R24 prima del commit.
+Reintroduce it deliberately as a separate compatibility task. Restore the required target framework/configuration from Git history or upstream, compile it independently, and fix compatibility issues at that time. Do not keep unused compatibility branches in day-to-day R26 development.

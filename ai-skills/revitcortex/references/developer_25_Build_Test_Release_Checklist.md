@@ -1,74 +1,98 @@
-# 25 — Build, Test, Release Checklist
+# 25 — Revit 2026 Build, Test, Release Checklist
 
-**Scope:** Pre-commit checks, build matrix, release flow.
-**Sources:** CLAUDE.md §"Build Commands", memoria reference_release_flow, feedback_deploy_all_revit_targets
-**Last verified:** 2026-05-25
+**Scope:** Pre-commit checks, build validation, deployment and release for this fork.
+**Target:** Autodesk Revit 2026 only.
+**Last verified for fork scope:** 2026-09-11.
 
-## Build plugin (5 target)
+## Build Plugin and Tools
 
-```bash
-dotnet build -c "Debug R23" src/RevitCortex.Plugin/RevitCortex.Plugin.csproj
-dotnet build -c "Debug R24" src/RevitCortex.Plugin/RevitCortex.Plugin.csproj
-dotnet build -c "Debug R25" src/RevitCortex.Plugin/RevitCortex.Plugin.csproj
-dotnet build -c "Debug R26" src/RevitCortex.Plugin/RevitCortex.Plugin.csproj
-dotnet build -c "Debug R27" src/RevitCortex.Plugin/RevitCortex.Plugin.csproj
+```powershell
+dotnet build src/RevitCortex.Plugin/RevitCortex.Plugin.csproj -c "Debug R26"
+dotnet build src/RevitCortex.Tools/RevitCortex.Tools.csproj -c "Debug R26"
 ```
 
-**Regola**: Pre-commit basta R25 + R24. Pre-release tutti e 5.
+For release validation:
 
-## Build server MCP
-
-```bash
-dotnet build src/RevitCortex.Server/RevitCortex.Server.csproj
+```powershell
+dotnet build src/RevitCortex.Plugin/RevitCortex.Plugin.csproj -c "Release R26"
+dotnet build src/RevitCortex.Tools/RevitCortex.Tools.csproj -c "Release R26"
 ```
 
-## Test
+## Build MCP server
 
-```bash
-dotnet test -c "Debug R25"
+```powershell
+dotnet build src/RevitCortex.Server/RevitCortex.Server.csproj -c Release
 ```
+
+## Tests
+
+Run the test project directly:
+
+```powershell
+dotnet test src/RevitCortex.Tests/RevitCortex.Tests.csproj -c "Debug R26"
+```
+
+RevitAPI-dependent tests may require an installed Revit API runtime or may be marked to skip outside Revit.
 
 ## Deploy
 
+Machine-scope development deploy:
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File deploy.ps1
+.\deploy.ps1
 ```
 
-Default deploya solo R25. Per release multi-target, deploya tutti e 5 (vedi memoria `feedback_deploy_all_revit_targets`).
+Side-by-side dev profile:
 
-## Server publish
-
-**Mai mischiare** framework-dependent e self-contained publish su `~/.revitcortex/server`. Fingerprint del problema: `"No frameworks were found"` in `mcp-server-revitcortex.log`.
-
-## Release flow (GitHub Releases)
-
-Repo `LuDattilo/RevitCortex` è pubblico. Repo asset release era separato (`revitcortex-releases`), ora il main è pubblico ma il flow resta:
-
-```bash
-./release.ps1 -Version "1.0.26"
-gh release create v1.0.26 --repo LuDattilo/revitcortex-releases ./release/*.zip
+```powershell
+.\deploy-dev.ps1
 ```
 
-(Verifica `release.ps1` per il flow esatto: in alcune versioni crea solo i pacchetti, in altre fa anche il `gh release create`.)
+User-scope deploy:
+
+```powershell
+.\deploy-userscope.ps1
+```
+
+All deploy scripts in this fork target **Revit 2026** only.
+
+## Build release package
+
+```powershell
+.\build-release.ps1 -Version "1.0.51"
+```
+
+Expected package name:
+
+`RevitCortex-v1.0.51-R26.zip`
+
+`release.ps1` is fork-safe: it prepares the local R26 package and does **not** publish to `LuDattilo/revitcortex-releases` or modify the upstream manifest.
+
+## Automatic updates
+
+Automatic upstream updates are disabled in this fork until a dedicated `AlexFspb` release channel is configured. This prevents an upstream package from replacing the customized R26 build.
 
 ## Pre-commit checklist
 
-- [ ] Build R25 verde.
-- [ ] Build R24 verde.
-- [ ] Tool aggiunti/modificati: schema rigenerato (`node server/generate-tool-schemas-csharp.mjs`).
-- [ ] `USER_GUIDE.md` aggiornato se nuovi tool.
-- [ ] Test unitari passano.
+- [ ] Plugin `Debug R26` builds.
+- [ ] Tools `Debug R26` builds.
+- [ ] Relevant unit tests pass.
+- [ ] Tool schema regenerated if MCP signatures changed.
+- [ ] User-facing documentation updated for behavior changes.
+- [ ] No new R23/R24/R25/R27 build assumptions were introduced.
 
 ## Pre-release checklist
 
-- [ ] Build R23, R24, R25, R26, R27 tutte verdi.
-- [ ] `deploy.ps1` testato per ogni target.
-- [ ] CHANGELOG.md aggiornato.
-- [ ] Server publish mode coerente (no mix).
-- [ ] `gh release create` su repo corretto.
+- [ ] Plugin `Release R26` builds.
+- [ ] Tools `Release R26` builds.
+- [ ] MCP server Release build passes.
+- [ ] Tests pass.
+- [ ] `build-release.ps1` produces the R26 ZIP.
+- [ ] Installer is tested with Revit 2026 closed.
+- [ ] Critical C# confirmation and 10-second auto-run countdown are tested in Revit 2026 if those files changed.
 
 ## Avoid
 
-- Non committare con solo build R25 verde.
-- Non skippare la rigenerazione di `tool-schemas.txt`.
-- Non mischiare publish mode sul server.
+- Do not publish from this fork into the upstream release repository.
+- Do not claim support for Revit versions other than 2026.
+- Do not mix framework-dependent and self-contained MCP server installs in the same server folder.

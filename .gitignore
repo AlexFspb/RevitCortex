@@ -13,7 +13,8 @@ publish/
 # Inno Setup compiled installer output (generated from installer/RevitCortex.iss)
 installer/Output/
 
-# Claude Code local state (keep settings.local.json which is tracked intentionally)
+# Claude Code local state must stay machine/user specific
+.claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 .worktrees/
