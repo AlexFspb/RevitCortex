@@ -106,7 +106,7 @@ The user can choose:
 - **No** — cancel;
 - **Allow auto-run** — allow timed approval for critical scripts during the current Revit process.
 
-When **Allow auto-run** is enabled, the Yes action displays a visible **10-second countdown**. If the user does nothing, the current script is approved at zero. Yes and No remain available throughout the countdown.
+When **Allow auto-run** is enabled, the Yes action displays a visible **3-second countdown**. If the user does nothing, the current script is approved at zero. Yes and No remain available throughout the countdown.
 
 ### Important boundaries
 

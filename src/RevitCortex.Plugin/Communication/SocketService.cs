@@ -17,10 +17,11 @@ public class SocketService
     private volatile bool _isRunning;
     private Thread? _listenerThread;
     private readonly CortexRouter _router;
-    private readonly int _port;
+    private int _port;
     private readonly ConcurrentDictionary<TcpClient, byte> _activeClients = new();
 
     public bool IsRunning => _isRunning;
+    public bool HasBoundPort { get; private set; }
 
     public SocketService(CortexRouter router, int port = 8080)
     {
@@ -30,18 +31,51 @@ public class SocketService
 
     public void Start()
     {
-        if (_isRunning) return;
-        _listener = new TcpListener(IPAddress.Loopback, _port);
-        _listener.Start();
-        _isRunning = true;
-        _listenerThread = new Thread(ListenForClients) { IsBackground = true };
-        _listenerThread.Start();
+        StartOnFirstAvailablePort(_port);
+    }
+
+    public int StartOnFirstAvailablePort(params int[] ports)
+    {
+        if (_isRunning) return _port;
+        // Once assigned, keep the port through Stop/Start for this process.
+        // Never silently move an existing client to another instance's port.
+        var candidates = HasBoundPort ? new[] { _port } : ports;
+        SocketException? lastError = null;
+        foreach (var port in candidates)
+        {
+            var listener = new TcpListener(IPAddress.Loopback, port);
+            listener.ExclusiveAddressUse = true;
+            try
+            {
+                // Binding is the availability check and reservation, atomically.
+                listener.Start();
+            }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse
+                || ex.SocketErrorCode == SocketError.AccessDenied)
+            {
+                listener.Stop();
+                lastError = ex;
+                continue;
+            }
+            _listener = listener;
+            _port = port;
+            HasBoundPort = true;
+            _isRunning = true;
+            _listenerThread = new Thread(ListenForClients) { IsBackground = true };
+            _listenerThread.Start();
+            return _port;
+        }
+        throw new InvalidOperationException(
+            $"Cannot start Cortex: TCP port(s) {string.Join(", ", candidates)} are unavailable. " +
+            "Stop the conflicting service or launch Revit with an explicit REVITCORTEX_PORT.", lastError);
     }
 
     public void Stop()
     {
         _isRunning = false;
         _listener?.Stop();
+        // Drain AcceptTcpClient before another Start can replace the listener.
+        _listenerThread?.Join(1000);
 
         // Close the active client connections too: a connection accepted before
         // Stop() would otherwise keep serving requests — e.g. stale commands

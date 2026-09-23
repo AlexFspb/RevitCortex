@@ -110,7 +110,7 @@
                 <!-- Port -->
                 <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,10" VerticalAlignment="Center">
                     <TextBlock Text="Server Port" FontSize="14" FontWeight="SemiBold" Foreground="#333"/>
-                    <TextBlock x:Name="PortHelpText" Text="TCP port (requires restart)" TextWrapping="Wrap" FontSize="11" Foreground="#666" Margin="0,3,0,0"/>
+                    <TextBlock x:Name="PortHelpText" Text="Automatic: 8080, then 8888" TextWrapping="Wrap" FontSize="11" Foreground="#666" Margin="0,3,0,0"/>
                 </StackPanel>
                 <TextBox x:Name="PortTextBox" Grid.Row="0" Grid.Column="1"
                          Margin="15,10,0,10" Padding="8,6" FontSize="14"

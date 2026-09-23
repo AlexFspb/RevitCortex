@@ -91,7 +91,7 @@ The Revit 2026 fork uses a dedicated critical confirmation window for custom C# 
 
 - **Yes** approves immediately.
 - **No** cancels.
-- **Allow auto-run** enables a visible **10-second countdown**.
+- **Allow auto-run** enables a visible **3-second countdown**.
 - At zero, the current script is approved automatically.
 - The user can still click Yes or No while the countdown runs.
 - Auto-run is stored only in process memory and resets when Revit closes.

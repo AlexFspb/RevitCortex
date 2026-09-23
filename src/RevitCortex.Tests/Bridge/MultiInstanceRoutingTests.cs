@@ -21,9 +21,8 @@ public class MultiInstanceRoutingTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var firstPort = ((IPEndPoint)first.LocalEndpoint).Port;
         var secondPort = ((IPEndPoint)second.LocalEndpoint).Port;
-        var missingSettings = Path.Combine(Path.GetTempPath(), $"cortex-missing-{Guid.NewGuid():N}.json");
-        var firstManager = new RevitConnectionManager(CortexPort.Resolve(firstPort.ToString(), missingSettings));
-        var secondManager = new RevitConnectionManager(CortexPort.Resolve(secondPort.ToString(), missingSettings));
+        var firstManager = new RevitConnectionManager(CortexPort.Resolve(firstPort.ToString()));
+        var secondManager = new RevitConnectionManager(CortexPort.Resolve(secondPort.ToString()));
         var firstResponse = Respond(first, "Revit A", timeout.Token);
         var secondResponse = Respond(second, "Revit B", timeout.Token);
 

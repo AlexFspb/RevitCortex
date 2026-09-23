@@ -23,7 +23,7 @@ public class RevitCortexApp : IExternalApplication
     private CortexSession? _session;
     private DocumentChangeWatcher? _cacheWatcher;
     private UIApplication? _uiApplication;
-    private int _port = CortexEnvironment.Current.DefaultPort;
+    private int _port = CortexPort.PrimaryPort;
     private Autodesk.Revit.UI.PushButton? _connectButton;
     private UI.AutoModeWindow? _autoModeWindow;
     private bool _updateNotificationShown;
@@ -56,6 +56,7 @@ public class RevitCortexApp : IExternalApplication
 
     public int Port => _port;
     public bool IsPortOverridden { get; private set; }
+    public bool HasAssignedPort => IsPortOverridden || _socketService?.HasBoundPort == true;
     public UIApplication? UiApplication => _uiApplication;
     public CortexRouter? Router => _router;
     public CortexSession? Session => _session;
@@ -175,7 +176,10 @@ public class RevitCortexApp : IExternalApplication
                     $"[RevitCortex] Session initialized with document: {activeDocument.Title}, locale: {locale}");
             }
 
-            _socketService.Start();
+            if (IsPortOverridden)
+                _socketService.Start();
+            else
+                _port = _socketService.StartOnFirstAvailablePort(CortexPort.PrimaryPort, CortexPort.SecondaryPort);
 
             if (_pbiSelectListener == null && _pbiActionHandler != null && _pbiActionEvent != null)
             {
@@ -448,8 +452,7 @@ public class RevitCortexApp : IExternalApplication
     {
         var overrideValue = Environment.GetEnvironmentVariable(CortexPort.EnvironmentVariable);
         IsPortOverridden = CortexPort.ParseOverride(overrideValue).HasValue;
-        _port = CortexPort.Resolve(overrideValue, CortexEnvironment.Current.SettingsFilePath,
-            CortexEnvironment.Current.DefaultPort);
+        _port = CortexPort.Resolve(overrideValue);
         System.Diagnostics.Trace.WriteLine(
             $"[RevitCortex] Port configured: {_port} (process override: {IsPortOverridden})");
     }

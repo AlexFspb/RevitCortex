@@ -129,7 +129,7 @@ The dialog offers:
 - **No** — cancel
 - **Allow auto-run** — session-only optional automatic approval
 
-When `Allow auto-run` is enabled, the Yes action displays a visible **10-second countdown**. At zero, the current script is automatically approved. The user can still press Yes or No during the countdown.
+When `Allow auto-run` is enabled, the Yes action displays a visible **3-second countdown**. At zero, the current script is automatically approved. The user can still press Yes or No during the countdown.
 
 The auto-run preference is deliberately held only in process memory and resets when Revit closes. Do not persist it to `settings.json` without an explicit product decision.
 
@@ -195,7 +195,7 @@ Maintain these controls:
 - localhost bridge behavior;
 - explicit confirmation semantics for destructive/critical operations.
 
-Do not weaken security controls just to eliminate user interaction. The session-only 10-second auto-run confirmation is the intended convenience mechanism for critical C# scripts.
+Do not weaken security controls just to eliminate user interaction. The session-only 3-second auto-run confirmation is the intended convenience mechanism for critical C# scripts.
 
 ## Documentation source of truth
 

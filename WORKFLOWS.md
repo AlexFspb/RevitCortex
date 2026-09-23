@@ -152,7 +152,7 @@ For custom C# execution, the Revit 2026 fork shows a dedicated critical confirma
 - **No** → cancel
 - **Allow auto-run** → enable session-only timed approval
 
-When **Allow auto-run** is enabled, the Yes action visibly counts down from **10 seconds**. At zero, the current script is approved automatically. Manual Yes and No remain available during the countdown.
+When **Allow auto-run** is enabled, the Yes action visibly counts down from **3 seconds**. At zero, the current script is approved automatically. Manual Yes and No remain available during the countdown.
 
 The preference remains active for later critical C# confirmations in the same Revit process and resets when Revit closes.
 

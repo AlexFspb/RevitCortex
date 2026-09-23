@@ -12,7 +12,7 @@ Install:
 Custom C# execution (send_code_to_revit) is disabled by default.
 When enabled, critical script execution is confirmed in Revit. The confirmation
 window includes an optional session-only "Allow auto-run" checkbox with a visible
-10-second countdown. The auto-run preference resets when Revit closes.
+3-second countdown. The auto-run preference resets when Revit closes.
 
 To uninstall: right-click uninstall.ps1 and choose "Run with PowerShell".
 

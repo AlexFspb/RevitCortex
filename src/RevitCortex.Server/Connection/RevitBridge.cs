@@ -44,7 +44,7 @@ public sealed class RevitBridge : IDisposable
             throw new InvalidOperationException(
                 $"Cannot connect to Revit on {_host}:{_port}. " +
                 $"Make sure Revit is open and the RevitCortex plugin is loaded (green icon in the ribbon). " +
-                $"If you changed the port, set REVITCORTEX_PORT or update ~/.revitcortex/settings.json. " +
+                $"Set REVITCORTEX_PORT to the port shown in that Revit's Cortex settings. " +
                 $"(SocketError: {ex.SocketErrorCode})", ex);
         }
         catch (OperationCanceledException)
@@ -164,13 +164,10 @@ public sealed class RevitConnectionManager
     }
 
     /// <summary>
-    /// Reads the process override first, then the legacy shared settings.
+    /// Pins this MCP server to its process override, or 8080. Never scans other ports.
     /// </summary>
     public static int ResolvePort()
     {
-        return CortexPort.Resolve(
-            Environment.GetEnvironmentVariable(CortexPort.EnvironmentVariable),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".revitcortex", "settings.json"));
+        return CortexPort.Resolve(Environment.GetEnvironmentVariable(CortexPort.EnvironmentVariable));
     }
 }

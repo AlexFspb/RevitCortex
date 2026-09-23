@@ -63,7 +63,7 @@ For the final critical confirmation, this fork adds a dedicated Revit window wit
 - **Yes** — approve immediately;
 - **No** — cancel;
 - **Allow auto-run** — optional session-only automatic approval;
-- a visible **10-second countdown** on the Yes action when auto-run is enabled;
+- a visible **3-second countdown** on the Yes action when auto-run is enabled;
 - automatic approval when the countdown reaches zero;
 - manual Yes/No available at all times during the countdown.
 
@@ -164,12 +164,15 @@ Until `AlexFspb/RevitCortex` has its own release manifest/channel, updates shoul
 
 ## Settings and data
 
-For two Revit 2026 processes with different AI clients, use
-[`start-revit-instance.ps1`](start-revit-instance.ps1) and assign a distinct
-`REVITCORTEX_PORT` to each Revit process and its matching MCP server. A process
-port overrides the shared settings and is never saved back by the Settings UI.
-See [multiple-instance setup](docs/MULTIPLE_REVIT_INSTANCES.md) for launch commands,
-client configuration and the remaining shared-data/Power BI limitations.
+When Cortex Switch is first enabled, the plugin automatically claims port **8080**
+or, if unavailable, **8888**. It keeps that assignment through stop/start within
+the same Revit process. Successful start/stop operations update the ribbon icon
+without an OK dialog. Settings shows the actual port read-only.
+Pin each client's MCP server to its matching `REVITCORTEX_PORT`; without an
+override the MCP server uses 8080 and never scans for another Revit.
+The legacy shared settings `Port` is no longer used for routing.
+See [multiple-instance setup](docs/MULTIPLE_REVIT_INSTANCES.md) for migration,
+optional fixed-port launchers and shared-data/Power BI limitations.
 
 Default user data lives under:
 

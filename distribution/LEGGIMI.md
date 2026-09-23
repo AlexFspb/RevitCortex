@@ -41,8 +41,8 @@ Quando un C# script sta per essere eseguito, RevitCortex mostra una finestra di 
 La finestra contiene inoltre l'opzione **Allow auto-run**:
 
 - se non è selezionata, lo script parte solo dopo un click manuale su **Yes**;
-- se viene selezionata, il pulsante mostra un conto alla rovescia di **10 secondi**;
-- allo scadere dei 10 secondi lo script viene approvato automaticamente;
+- se viene selezionata, il pulsante mostra un conto alla rovescia di **3 secondi**;
+- allo scadere dei 3 secondi lo script viene approvato automaticamente;
 - **Yes** e **No** restano utilizzabili durante il conto alla rovescia;
 - l'opzione vale solo per la sessione Revit corrente e viene azzerata alla chiusura di Revit.
 

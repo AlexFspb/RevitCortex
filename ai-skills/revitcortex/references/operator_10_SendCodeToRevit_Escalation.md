@@ -30,7 +30,7 @@ The user has two manual actions:
 The window also includes **Allow auto-run**:
 
 - off by default when Revit starts;
-- when enabled, the Yes action displays a visible **10-second countdown**;
+- when enabled, the Yes action displays a visible **3-second countdown**;
 - at zero, the current script is approved automatically;
 - Yes/No remain available while the countdown runs;
 - the preference is process/session-only and resets when Revit closes.

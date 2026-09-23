@@ -8,13 +8,13 @@ namespace RevitCortex.Plugin.UI;
 
 /// <summary>
 /// Critical confirmation dialog used for send_code_to_revit and other critical actions.
-/// When "Allow auto-run" is enabled, the Yes button counts down from 10 seconds and
+/// When "Allow auto-run" is enabled, the Yes button counts down from 3 seconds and
 /// automatically approves the operation at zero. The preference is kept for the current
 /// Revit process only and resets when Revit is restarted.
 /// </summary>
 public partial class CriticalConfirmationWindow : Window
 {
-    private const int AutoApproveSeconds = 10;
+    private const int AutoApproveSeconds = 3;
     private readonly DispatcherTimer _timer;
     private int _secondsRemaining = AutoApproveSeconds;
 

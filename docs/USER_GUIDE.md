@@ -13,7 +13,7 @@ This is an unofficial, independently maintained fork of `LuDattilo/RevitCortex`.
 3. [Choosing the right tool](#choosing-the-right-tool)
 4. [Safe write workflow](#safe-write-workflow)
 5. [Custom C# execution](#custom-c-execution)
-6. [Allow auto-run and 10-second approval](#allow-auto-run-and-10-second-approval)
+6. [Allow auto-run and 3-second approval](#allow-auto-run-and-3-second-approval)
 7. [Settings](#settings)
 8. [Build and installation](#build-and-installation)
 9. [Troubleshooting](#troubleshooting)
@@ -56,6 +56,7 @@ MCP client
 ```
 
 The bridge is not started automatically. **Cortex Switch** controls whether the Revit-side service is listening.
+Successful start/stop operations update the green/gray icon without an OK dialog.
 
 RevitCortex returns structured success/error responses instead of treating every failure as an opaque MCP exception.
 
@@ -163,7 +164,7 @@ Do not use modal family-editing flows such as `Document.EditFamily` from the MCP
 
 ---
 
-## Allow auto-run and 10-second approval
+## Allow auto-run and 3-second approval
 
 This fork changes the critical confirmation flow for custom C# scripts.
 
@@ -175,7 +176,7 @@ The dialog contains:
 
 When **Allow auto-run** is checked:
 
-1. the Yes action changes to a visible countdown such as `Yes — auto approve in 10 s`;
+1. the Yes action changes to a visible countdown such as `Yes — auto approve in 3 s`;
 2. the counter decreases once per second;
 3. when it reaches zero, the current script is approved automatically;
 4. the user may still click **Yes** or **No** at any time;
@@ -197,9 +198,11 @@ Auto-run changes only the final critical approval step. It does **not** disable:
 ## Settings
 
 For simultaneous Revit processes with separate AI clients, follow
-[Two Revit instances](MULTIPLE_REVIT_INSTANCES.md). Launch each with its own
-`REVITCORTEX_PORT` and set the same value on that client's MCP server. A port
-supplied at launch is displayed read-only and is not saved into shared settings.
+[Two Revit instances](MULTIPLE_REVIT_INSTANCES.md). Cortex automatically selects
+8080 or 8888 on first activation. Set the matching `REVITCORTEX_PORT` on each
+client's MCP server. The assigned port is read-only and is not saved into shared
+settings; the old saved `Port` value is ignored. Explicit launch overrides remain
+available when client roles must not depend on activation order.
 
 Open **RevitCortex → Settings**.
 
@@ -215,7 +218,7 @@ The Tools page lets you enable or disable individual tools.
 
 `send_code_to_revit` has a separate **Allow custom C# execution** gate and remains disabled by default until explicitly enabled.
 
-The page also explains the session-only **Allow auto-run** behavior and 10-second countdown.
+The page also explains the session-only **Allow auto-run** behavior and 3-second countdown.
 
 ### Read-only mode
 
@@ -306,7 +309,7 @@ Open **Settings → Tools** and enable custom C# execution only if the task genu
 
 ### Script confirmation keeps appearing
 
-That is the normal critical-confirmation behavior. If you intentionally want hands-off approval during the current Revit session, check **Allow auto-run** in the critical dialog. Each critical script will then show a 10-second countdown before approval.
+That is the normal critical-confirmation behavior. If you intentionally want hands-off approval during the current Revit session, check **Allow auto-run** in the critical dialog. Each critical script will then show a 3-second countdown before approval.
 
 ### Auto-run should stop
 

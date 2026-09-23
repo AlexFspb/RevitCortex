@@ -1,110 +1,110 @@
-# Two Revit 2026 instances with separate AI clients
+# Two Revit 2026 instances: automatic ports 8080 and 8888
 
-Use a distinct TCP port for each Revit process and pin each client's MCP server to
-that same port. For example:
+Start both Revit instances normally. No special shortcut is required.
+When **Cortex Switch** is enabled for the first time in each process, the plugin
+tries to bind **8080**, then **8888** if 8080 is unavailable. The operating system
+reserves the port as part of the bind, so simultaneous starts cannot claim the
+same port. Assignment follows the order Cortex is enabled, not Revit launch order.
+If another application already owns 8080, the first Cortex uses 8888.
+
+Successful start/stop operations show no OK dialog. The ribbon icon remains the
+status indicator (green: running; gray: stopped). **Settings > General** shows
+this instance's actual port. Errors such as both ports being unavailable are
+still reported; no third automatic port is selected.
+
+## Connect the two clients
 
 ```text
-Client A (Codex)   -> RevitCortex.Server [8888] -> Revit A [8888]
-Client B (Claude)  -> RevitCortex.Server [8889] -> Revit B [8889]
+Client A (Codex)  -> MCP server fixed to 8080 -> Revit that claimed 8080
+Client B (Claude) -> MCP server fixed to 8888 -> Revit that claimed 8888
 ```
 
-This requires the plugin and server built from the revision that adds this
-feature. Existing installations must be rebuilt/deployed first, with Revit and
-the MCP clients closed. Use `deploy.ps1` and `deploy-server.ps1` as described in
-the main README. Updating GitHub alone does not update installed binaries.
+Set a per-server environment variable for the `RevitCortex.Server.exe` stdio
+entry in each client:
 
-## 1. Launch each Revit with its own port
+| Client | Environment |
+|---|---|
+| A | `REVITCORTEX_PORT=8080` |
+| B | `REVITCORTEX_PORT=8888` |
 
-From the repository folder, run these separately:
+Both entries may use the same installed executable, normally
+`%USERPROFILE%\.revitcortex\server\RevitCortex.Server.exe`, as separate processes.
+Use its real absolute path in client configuration and restart the MCP clients
+after configuration changes. A server without an override defaults to 8080.
+It never scans for another available Revit port.
+
+Always check `get_project_info` from each client before making changes to verify
+which project is attached. Window focus does not change the destination. A
+port identifies a running endpoint, not a permanent project identity: after
+closing Revit and launching a new process, that port can belong to a new model.
+
+## Stop/start behavior
+
+Once assigned, the port stays fixed for that Revit process, including Cortex
+Switch off/on and document close/reopen. A stopped instance does not retain a
+listening socket. If another process takes its assigned port, restarting Cortex
+reports an error instead of silently moving to the other port. An MCP client
+whose endpoint is unavailable also reports an error instead of trying another.
+
+On a completely new Revit launch, the next first activation tries 8080 then
+8888 again. Use explicit overrides below if you want a stable client role
+regardless of activation order.
+
+## Optional explicit launch ports
+
+For deterministic assignment, the launcher from the repository is still available:
 
 ```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-revit-instance.ps1 -Port 8080
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-revit-instance.ps1 -Port 8888
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-revit-instance.ps1 -Port 8889
 ```
 
-The script defaults to `C:\Program Files\Autodesk\Revit 2026\Revit.exe`.
-Pass `-RevitPath` for a custom installation. `-WhatIf` validates the arguments
-and reports the launch without starting Revit.
+The default executable is `C:\Program Files\Autodesk\Revit 2026\Revit.exe`.
+Use `-RevitPath` for a custom installation, or `-WhatIf` to validate without
+launching. Shortcut targets must use the absolute script path.
+The launcher sets `REVITCORTEX_PORT` only for the new child process. An explicit
+port has no fallback. It must be an integer from 1 through 65535; invalid values
+fail startup. Do not use `setx` to assign a global port to all Revit instances.
 
-For Windows shortcuts, use the corresponding command above with an **absolute**
-script path (for example `C:\RevitCortex\start-revit-instance.ps1`). Name the
-shortcuts "Revit - Codex" and "Revit - Claude". Launch each Revit using its
-shortcut, open the intended project, then enable **Cortex Switch** in each.
+## Shared settings and upgrade
 
-The launcher sets `REVITCORTEX_PORT` only in the new Revit process's environment.
-It does not edit `settings.json`, the parent shell, or Windows user/machine
-environment variables. Avoid setting this variable globally with `setx`.
+The legacy saved `Port` in `settings.json` is no longer used for routing by the
+plugin or C# MCP server. Editing it from one Revit must not change another
+instance's destination. Settings displays the assigned port read-only and never
+writes it back, including when other settings are saved or reset.
+This is an intentional change from the previous shared-port setup: clients that
+used a saved custom port must now specify `REVITCORTEX_PORT` explicitly. The dev
+plugin also follows the 8080/8888 automatic pair unless explicitly overridden;
+its other dev settings remain separate.
 
-In **Settings > General**, the port is read-only when supplied by the launcher.
-Saving or resetting other settings leaves the shared saved port untouched.
-The status badge shows the actual port for that Revit process. To change its
-port, close that instance and relaunch with a different `-Port`.
+Deploy updated Plugin/Core/Tools and the updated MCP server before testing.
+Close Revit and MCP clients before using `deploy.ps1` and `deploy-server.ps1`.
+Updating GitHub alone does not update installed binaries.
 
-## 2. Pin each MCP server to its matching port
+Other settings and user data remain shared between ordinary instances. This
+includes script files, diagnostic reports, audit and telemetry files. Avoid
+concurrent edits of shared settings. Power BI browser callbacks still use the
+single port 27016; a second instance skips that callback listener while its MCP
+connection can run normally.
 
-In each client's configuration for the existing `RevitCortex.Server.exe` stdio
-server, set a **per-server environment variable**:
+## Script confirmation
 
-| Client | Executable | Environment |
-|---|---|---|
-| A | `%USERPROFILE%\.revitcortex\server\RevitCortex.Server.exe` | `REVITCORTEX_PORT=8888` |
-| B | The same executable | `REVITCORTEX_PORT=8889` |
-
-These are two separate server processes; no second copy of the executable is
-needed. Use the real absolute executable path in client configuration. Restart
-the MCP clients after changing their environment settings. Merely changing the
-port in Revit does not reconfigure an already-running MCP server.
-
-The MCP server does not select Revit by window focus or project title. One
-server stays attached to its configured port for its entire lifetime. If that
-Revit is closed, calls fail; they do not fall back to the other port. Before
-making model changes, use `get_project_info` from each client to check the
-expected project.
-
-## Port precedence and compatibility
-
-Both the C# MCP server and plugin use this order:
-
-1. Process environment `REVITCORTEX_PORT`, when nonempty.
-2. Saved `Port` in the existing settings file.
-3. Default port (8080 for the ordinary installation).
-
-Explicit overrides must be integers from 1 through 65535. Invalid overrides
-fail startup rather than silently connecting to a different model. A missing
-override preserves the previous single-instance behavior. The dev plugin keeps
-its existing separate settings file and default port 8081; explicitly set the
-same port on its MCP server as well.
-
-If the chosen port is occupied, choose another matching pair. No automatic port
-switching occurs. If you start two Revit processes before enabling Cortex in
-either, the launcher cannot reserve their ports: you must give them different
-numbers. Revit instances that were already running before using the launcher
-retain their original ports.
-
-## Scope and remaining limitations
-
-- This separates MCP routing, not all user data. Ordinary instances still share
-  settings other than the process port, script files, diagnostic reports, audit
-  and telemetry files. Avoid editing shared settings from both instances at once.
-- The Power BI browser callback listener still uses port 27016. Only one instance
-  can own that callback endpoint; separate MCP ports do not isolate Power BI
-  browser callbacks. A collision skips that listener without stopping MCP.
-- Both instances must use Revit 2026. Other Revit versions are outside this fork.
-- Read-only mode, disabled tools, custom-code enablement, sandbox validation,
-  audit logging and Revit confirmations remain in force.
+The optional, session-only **Allow auto-run** now counts down for **3 seconds**.
+The critical confirmation window still offers Yes and No. Code-execution
+settings, sandbox checks, read-only/disabled-tool enforcement, audit logging and
+transaction handling are unchanged. Removing routine connection status dialogs
+does not remove critical or destructive-operation confirmations.
 
 ## Manual verification after deployment
 
-1. Launch the two instances on 8888 and 8889 and enable Cortex Switch in each.
-2. Confirm each settings badge reports its assigned port.
-3. Save another setting and use Reset Defaults: the assigned port stays visible
-   and the saved shared `Port` is not overwritten by it.
-4. Connect each client with its matching environment variable; check different
-   projects using `get_project_info`.
-5. Close and relaunch one instance through its shortcut. The other keeps working.
-6. With one instance closed, its client must report a connection error while the
-   other client still reaches its own project.
+1. Launch two Revit 2026 processes normally and enable Cortex in each.
+2. Verify 8080/8888 in their Settings pages and no success OK dialogs.
+3. Connect the matching clients and verify each project's identity.
+4. Stop/start the second Cortex while 8080 is free: it must stay on 8888.
+5. Confirm occupied ports produce an error instead of another assignment.
+6. Save/reset other settings: the displayed active port must stay unchanged.
+7. Verify Yes/No and the 3-second auto-run countdown in Revit.
 
-Automated tests cover override precedence and validation, legacy fallback, and
-concurrent routing to two real loopback listeners. They do not replace these
-checks inside Revit.
+Automated tests exercise port precedence, concurrent exclusive TCP binding,
+exhaustion, sticky reassignment and routing isolation. They do not replace the
+Revit UI and model checks above.

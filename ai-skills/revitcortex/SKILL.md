@@ -36,7 +36,7 @@ This fork supports **Autodesk Revit 2026 only**. Do not apply upstream R23/R24/R
 
 ## Script confirmation in this fork
 
-Critical C# execution uses the RevitCortex confirmation window. `Allow auto-run` is optional and session-only. When enabled, a visible **10-second countdown** auto-approves the script unless the user presses No or closes the dialog. The setting resets when Revit closes.
+Critical C# execution uses the RevitCortex confirmation window. `Allow auto-run` is optional and session-only. When enabled, a visible **3-second countdown** auto-approves the script unless the user presses No or closes the dialog. The setting resets when Revit closes.
 
 This does not disable sandbox validation, audit logging, read-only protection, or the rule to prefer dedicated tools.
 

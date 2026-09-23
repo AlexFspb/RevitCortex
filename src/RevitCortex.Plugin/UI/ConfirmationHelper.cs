@@ -85,7 +85,7 @@ public static class ConfirmationHelper
 
     /// <summary>
     /// Shows the critical confirmation window. The user can enable "Allow auto-run".
-    /// When enabled, the Yes button counts down from 10 seconds and approves automatically
+    /// When enabled, the Yes button counts down from 3 seconds and approves automatically
     /// at zero. The preference is session-scoped and resets when Revit restarts.
     /// </summary>
     public static bool? ConfirmCritical(string action, int elementCount, string? description)

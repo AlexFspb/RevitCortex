@@ -41,7 +41,7 @@
                               Foreground="#5D4037"
                               Content="Allow send_code_to_revit (custom C# execution)"/>
                     <TextBlock Foreground="#8D6E63" FontSize="11" Margin="20,3,0,0" TextWrapping="Wrap"
-                               Text="Last resort only. Off by default. Each script requires the critical confirmation window unless you explicitly enable session-only 'Allow auto-run'; with that option enabled, a visible 10-second countdown auto-approves the script. The auto-run choice resets when Revit closes."/>
+                               Text="Last resort only. Off by default. Each script requires the critical confirmation window unless you explicitly enable session-only 'Allow auto-run'; with that option enabled, a visible 3-second countdown auto-approves the script. The auto-run choice resets when Revit closes."/>
                 </StackPanel>
             </Border>
         </StackPanel>
