@@ -55,6 +55,7 @@ public class RevitCortexApp : IExternalApplication
     }
 
     public int Port => _port;
+    public bool IsPortOverridden { get; private set; }
     public UIApplication? UiApplication => _uiApplication;
     public CortexRouter? Router => _router;
     public CortexSession? Session => _session;
@@ -67,6 +68,7 @@ public class RevitCortexApp : IExternalApplication
 
         try
         {
+            LoadPort();
             CreateRibbonPanel(application);
 
             var store = new SessionStore();
@@ -98,7 +100,6 @@ public class RevitCortexApp : IExternalApplication
 
             LoadDisabledTools();
             LoadReadOnlyMode();
-            LoadPort();
 
             RevitCortex.Plugin.Updates.UpdateChecker.UpdateAvailable += OnUpdateAvailable;
             RevitCortex.Plugin.Updates.UpdateChecker.CheckInBackground();
@@ -445,28 +446,12 @@ public class RevitCortexApp : IExternalApplication
 
     private void LoadPort()
     {
-        try
-        {
-            string settingsPath = CortexEnvironment.Current.SettingsFilePath;
-            if (System.IO.File.Exists(settingsPath))
-            {
-                var json = System.IO.File.ReadAllText(settingsPath);
-                var settings = Newtonsoft.Json.JsonConvert.DeserializeObject<
-                    Newtonsoft.Json.Linq.JObject>(json);
-                var port = settings?["Port"]?.ToObject<int>();
-                if (port.HasValue && port.Value > 0 && port.Value <= 65535)
-                {
-                    _port = port.Value;
-                    System.Diagnostics.Trace.WriteLine(
-                        $"[RevitCortex] Port configured: {_port}");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.WriteLine(
-                $"[RevitCortex] Could not load port setting: {ex.Message}");
-        }
+        var overrideValue = Environment.GetEnvironmentVariable(CortexPort.EnvironmentVariable);
+        IsPortOverridden = CortexPort.ParseOverride(overrideValue).HasValue;
+        _port = CortexPort.Resolve(overrideValue, CortexEnvironment.Current.SettingsFilePath,
+            CortexEnvironment.Current.DefaultPort);
+        System.Diagnostics.Trace.WriteLine(
+            $"[RevitCortex] Port configured: {_port} (process override: {IsPortOverridden})");
     }
 
     private void LoadReadOnlyMode()

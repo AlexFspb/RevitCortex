@@ -164,6 +164,13 @@ Until `AlexFspb/RevitCortex` has its own release manifest/channel, updates shoul
 
 ## Settings and data
 
+For two Revit 2026 processes with different AI clients, use
+[`start-revit-instance.ps1`](start-revit-instance.ps1) and assign a distinct
+`REVITCORTEX_PORT` to each Revit process and its matching MCP server. A process
+port overrides the shared settings and is never saved back by the Settings UI.
+See [multiple-instance setup](docs/MULTIPLE_REVIT_INSTANCES.md) for launch commands,
+client configuration and the remaining shared-data/Power BI limitations.
+
 Default user data lives under:
 
 ```text

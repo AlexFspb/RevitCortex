@@ -196,6 +196,11 @@ Auto-run changes only the final critical approval step. It does **not** disable:
 
 ## Settings
 
+For simultaneous Revit processes with separate AI clients, follow
+[Two Revit instances](MULTIPLE_REVIT_INSTANCES.md). Launch each with its own
+`REVITCORTEX_PORT` and set the same value on that client's MCP server. A port
+supplied at launch is displayed read-only and is not saved into shared settings.
+
 Open **RevitCortex → Settings**.
 
 ### General

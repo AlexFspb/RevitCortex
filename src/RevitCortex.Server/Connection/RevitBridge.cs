@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using RevitCortex.Core.Hosting;
 
 namespace RevitCortex.Server.Connection;
 
@@ -163,28 +164,13 @@ public sealed class RevitConnectionManager
     }
 
     /// <summary>
-    /// Reads the port from settings or environment, same logic as the TS server.
+    /// Reads the process override first, then the legacy shared settings.
     /// </summary>
     public static int ResolvePort()
     {
-        var envPort = Environment.GetEnvironmentVariable("REVITCORTEX_PORT");
-        if (!string.IsNullOrEmpty(envPort) && int.TryParse(envPort, out var ep) && ep > 0 && ep <= 65535)
-            return ep;
-
-        try
-        {
-            var settingsPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".revitcortex", "settings.json");
-            if (File.Exists(settingsPath))
-            {
-                var json = JObject.Parse(File.ReadAllText(settingsPath));
-                var port = json["Port"]?.Value<int>();
-                if (port is > 0 and <= 65535) return port.Value;
-            }
-        }
-        catch { }
-
-        return 8080;
+        return CortexPort.Resolve(
+            Environment.GetEnvironmentVariable(CortexPort.EnvironmentVariable),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".revitcortex", "settings.json"));
     }
 }

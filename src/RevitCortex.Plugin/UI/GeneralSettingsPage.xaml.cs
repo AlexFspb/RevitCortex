@@ -32,6 +32,7 @@ public partial class GeneralSettingsPage : Page
         InitializeComponent();
         ApplyLocalizedStrings();
         LoadSettings();
+        ShowPortOverride();
         LoadVersionInfo();
         RefreshConnectionStatus();
         RefreshUpdateBanner();
@@ -329,6 +330,18 @@ public partial class GeneralSettingsPage : Page
         SetComboSelection(LogLevelComboBox, DefaultLogLevel);
         KeepCountTextBox.Text = DefaultKeepCount.ToString();
         EnableTelemetryCheckBox.IsChecked = false;
+        ShowPortOverride();
+    }
+
+    private bool HasPortOverride => RevitCortexApp.Instance?.IsPortOverridden == true;
+
+    private void ShowPortOverride()
+    {
+        if (!HasPortOverride) return;
+        PortTextBox.Text = RevitCortexApp.Instance!.Port.ToString();
+        PortTextBox.IsReadOnly = true;
+        PortHelpText.Text = "Set for this Revit by its launcher. To change it, restart with another launcher port.";
+        PortTextBox.ToolTip = "This port is not saved to the shared settings file.";
     }
 
     private static int ClampKeepCount(int n) => n < 1 ? 1 : (n > 200 ? 200 : n);
@@ -367,7 +380,8 @@ public partial class GeneralSettingsPage : Page
                 ? JObject.Parse(File.ReadAllText(SettingsFilePath))
                 : new JObject();
 
-            settings["Port"] = port;
+            if (!HasPortOverride)
+                settings["Port"] = port;
             settings["LogLevel"] = logLevel;
             settings["ReadOnlyMode"] = ReadOnlyCheckBox.IsChecked == true;
             settings["SupportReportKeepCount"] = keep;
@@ -384,7 +398,7 @@ public partial class GeneralSettingsPage : Page
             if (RevitCortexApp.Instance?.Router != null)
                 RevitCortexApp.Instance.Router.ReadOnlyMode = ReadOnlyCheckBox.IsChecked == true;
 
-            bool portChanged = port != _originalPort;
+            bool portChanged = !HasPortOverride && port != _originalPort;
             if (portChanged)
             {
                 ShowSaveFeedback("Saved \u2713  Restart Revit for port change", success: true, restartHint: true);
