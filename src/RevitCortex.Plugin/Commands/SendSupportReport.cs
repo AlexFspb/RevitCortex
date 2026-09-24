@@ -297,7 +297,9 @@ public class SendSupportReport : IExternalCommand
             w.WriteLine($"Profile:        {env.ProfileName}{(env.IsDev ? " (DEV build)" : "")}");
             w.WriteLine($"Config folder:  {env.RootFolder}");
             w.WriteLine($"Settings file:  {env.SettingsFilePath}");
-            w.WriteLine($"Bridge port:    {env.DefaultPort}");
+            var cortex = RevitCortexApp.Instance;
+            w.WriteLine($"Bridge port:    {(cortex?.Session?.BridgePort?.ToString() ?? "not bound")}");
+            w.WriteLine($"Bridge running: {cortex?.IsServiceRunning == true}");
         }
         catch (Exception ex)
         {

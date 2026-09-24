@@ -118,7 +118,7 @@ public class ToolExecutionHandler : IExternalEventHandler
     private static bool IsActiveDocument(UIApplication app, object? expected)
     {
         return expected is Autodesk.Revit.DB.Document document && document.IsValidObject
-            && app?.ActiveUIDocument?.Document == document;
+            && document.Equals(app?.ActiveUIDocument?.Document);
     }
 
     public bool TryPrepareExecution(ICortexTool tool, JObject input, CortexSession session,

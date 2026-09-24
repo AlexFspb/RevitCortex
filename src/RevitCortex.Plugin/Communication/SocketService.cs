@@ -44,31 +44,48 @@ public class SocketService
         foreach (var port in candidates)
         {
             var listener = new TcpListener(IPAddress.Loopback, port);
-            listener.ExclusiveAddressUse = true;
             try
             {
+                listener.ExclusiveAddressUse = true;
                 // Binding is the availability check and reservation, atomically.
-                listener.Start();
+                StartListener(listener);
+                _listener = listener;
+                _isRunning = true;
+                _listenerThread = new Thread(ListenForClients) { IsBackground = true };
+                StartListenerThread(_listenerThread);
+                // Commit the assignment only after the entire startup succeeds.
+                _port = port;
+                HasBoundPort = true;
+                return _port;
             }
-            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse
-                || ex.SocketErrorCode == SocketError.AccessDenied)
+            catch (Exception ex)
             {
-                listener.Stop();
-                lastError = ex;
-                continue;
+                _isRunning = false;
+                try { listener.Stop(); }
+                catch (Exception stopError)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RevitCortex] Listener cleanup failed: {stopError.Message}");
+                }
+                _listener = null;
+                _listenerThread = null;
+                if (ex is SocketException socketError &&
+                    (socketError.SocketErrorCode == SocketError.AddressAlreadyInUse ||
+                     socketError.SocketErrorCode == SocketError.AccessDenied))
+                {
+                    lastError = socketError;
+                    continue;
+                }
+                throw;
             }
-            _listener = listener;
-            _port = port;
-            HasBoundPort = true;
-            _isRunning = true;
-            _listenerThread = new Thread(ListenForClients) { IsBackground = true };
-            _listenerThread.Start();
-            return _port;
         }
         throw new InvalidOperationException(
             $"Cannot start Cortex: TCP port(s) {string.Join(", ", candidates)} are unavailable. " +
             "Stop the conflicting service or launch Revit with an explicit REVITCORTEX_PORT.", lastError);
     }
+
+    // Fault-injection seams also exercise failures after a successful bind.
+    protected virtual void StartListener(TcpListener listener) => listener.Start();
+    protected virtual void StartListenerThread(Thread thread) => thread.Start();
 
     public void Stop()
     {

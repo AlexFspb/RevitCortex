@@ -27,6 +27,7 @@ public class RevitCortexApp : IExternalApplication
     private Autodesk.Revit.UI.PushButton? _connectButton;
 
     private bool _updateNotificationShown;
+    private string? _portWarning;
     private PbiSelectHttpListener? _pbiSelectListener;
     private PbiActionEventHandler? _pbiActionHandler;
     private ExternalEvent? _pbiActionEvent;
@@ -175,7 +176,9 @@ public class RevitCortexApp : IExternalApplication
             if (IsPortOverridden)
                 _socketService.Start();
             else
-                _port = _socketService.StartOnFirstAvailablePort(CortexPort.PrimaryPort, CortexPort.SecondaryPort);
+                _port = _socketService.StartOnFirstAvailablePort(CortexPort.AutomaticPorts(CortexEnvironment.Current.IsDev));
+
+            _session!.BridgePort = _port;
 
             if (_pbiSelectListener == null && _pbiActionHandler != null && _pbiActionEvent != null)
             {
@@ -319,7 +322,7 @@ public class RevitCortexApp : IExternalApplication
             var doc = _uiApplication.ActiveUIDocument?.Document;
             if (doc != null && !doc.IsValidObject) doc = null;
             var currentDoc = _session?.CaptureDocumentContext().Document;
-            if (!ReferenceEquals(currentDoc, doc))
+            if (!object.Equals(currentDoc, doc))
             {
                 _router.SynchronizeActiveDocument(doc, doc == null ? "en" : LocaleDetector.Detect(doc));
                 _session?.Store.Set("uiApplication", _uiApplication);
@@ -330,8 +333,15 @@ public class RevitCortexApp : IExternalApplication
         catch (Exception ex)
         {
             // Do not retain a stale model if analysis fails. The next Idling retries.
-            _router.SynchronizeActiveDocument(null);
-            _session?.Store.Set("uiApplication", _uiApplication);
+            try
+            {
+                _router.SynchronizeActiveDocument(null);
+                _session?.Store.Set("uiApplication", _uiApplication);
+            }
+            catch (Exception cleanupError)
+            {
+                System.Diagnostics.Trace.WriteLine($"[RevitCortex] Context cleanup failed: {cleanupError}");
+            }
             System.Diagnostics.Trace.WriteLine(
                 $"[RevitCortex] Active document synchronization failed: {ex.Message}");
         }
@@ -351,6 +361,13 @@ public class RevitCortexApp : IExternalApplication
 
         // Runs after close completes OR is cancelled, and handles an empty Revit.
         SynchronizeActiveDocument();
+        if (_portWarning != null)
+        {
+            var warning = _portWarning;
+            _portWarning = null; // One attempt per startup, including if notification fails.
+            try { new PortWarningWindow(warning, _uiApplication.MainWindowHandle).Show(); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[RevitCortex] Port warning UI failed: {ex.Message}"); }
+        }
     }
 
     private void OnUpdateAvailable()
@@ -386,8 +403,10 @@ public class RevitCortexApp : IExternalApplication
     private void LoadPort()
     {
         var overrideValue = Environment.GetEnvironmentVariable(CortexPort.EnvironmentVariable);
-        IsPortOverridden = CortexPort.ParseOverride(overrideValue).HasValue;
-        _port = CortexPort.Resolve(overrideValue);
+        _port = CortexPort.ResolvePlugin(overrideValue, CortexEnvironment.Current.IsDev,
+            out var overridden, out _portWarning);
+        IsPortOverridden = overridden;
+        if (_portWarning != null) System.Diagnostics.Trace.WriteLine($"[RevitCortex] {_portWarning}");
         System.Diagnostics.Trace.WriteLine(
             $"[RevitCortex] Port configured: {_port} (process override: {IsPortOverridden})");
     }

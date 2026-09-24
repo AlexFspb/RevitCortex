@@ -29,6 +29,8 @@ MCP client
 
 `CortexSession` provides shared session state, document capabilities, locale, confirmation callbacks and result cache. Revit API work that arrives from the socket background thread is dispatched through Revit `ExternalEvent`.
 
+The TCP server is process-scoped: document close must not stop or restart it. Synchronize the session from ActiveUIDocument, never from a background DocumentOpened argument. Closing only the active document invalidates its context; Idling reconciles completed/cancelled closure. Validate the captured context again before ExternalEvent execution; never replay stale commands against another document.
+
 ## Build and test
 
 After Plugin/Tools changes:
@@ -203,7 +205,7 @@ Maintain these controls:
 - localhost bridge behavior;
 - explicit confirmation semantics for destructive/critical operations.
 
-Do not weaken security controls just to eliminate user interaction. The session-only 3-second auto-run confirmation is the intended convenience mechanism for critical C# scripts.
+Default-on ordinary auto-run with a 3-second countdown is an intentional product decision for autonomous MCP work. Agents must not disable it or lengthen either the ordinary or critical C# 3-second countdown. Critical C# retains its separate agreed Yes/No and opt-in auto-run controls. Sandbox validation, read-only enforcement, disabled-tool restrictions and auditing remain mandatory. Do not add a separate chat-approval step for send_code_to_revit within the user-authorized task.
 
 ## Documentation source of truth
 
@@ -217,5 +219,3 @@ Fork behavior should be consistent across:
 - `ai-skills/revitcortex/`
 
 Large upstream historical/specification documents may still describe the original multi-version project. When they conflict with this file on target version/build/deploy/access policy, the **Revit 2026 fork rules in this file win**.
-
-The TCP server is process-scoped: document close must not stop or restart it. Synchronize the session from ActiveUIDocument, never from a background DocumentOpened argument. Closing only the active document invalidates its context; Idling reconciles completed/cancelled closure. Validate the captured context again before ExternalEvent execution; never replay stale commands against another document.

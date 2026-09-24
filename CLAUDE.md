@@ -32,6 +32,8 @@ The Revit plugin server is off by default; the user starts it with **Cortex Swit
 - For custom parameters, inspect a sample element first; never guess the exact parameter name.
 - Use a new conversation/session when old large tool outputs make the context noisy.
 
+Cortex stays enabled across document/family closure. The active UI document is the MCP target; background families must not replace it. No active document produces a model-command error while TCP remains available. Queued commands are cancelled when their captured context changes; manual Cortex stop is respected.
+
 ## Tool selection
 
 Use the narrowest dedicated tool available.
@@ -48,6 +50,8 @@ Examples:
 - copy properties → `match_element_properties`
 - quick clashes → `clash_detection`
 - visual clash review → `workflow_clash_review`
+
+Default-on ordinary auto-run and both 3-second countdowns are intentional product decisions for autonomous MCP work. Agents must not disable ordinary auto-run, lengthen either countdown, or add a separate chat-approval step for authorized C# work. The separate critical C# confirmation and other execution safeguards remain in place.
 
 ## Destructive writes
 
@@ -160,5 +164,3 @@ Some large documents under `docs/` and `WORKFLOWS.md` originated upstream and ma
 3. this file;
 4. `README.md` and current fork-specific AI references;
 5. upstream historical documentation.
-
-Cortex stays enabled across document/family closure. The active UI document is the MCP target; background families must not replace it. No active document produces a model-command error while TCP remains available. Queued commands are cancelled when their captured context changes; manual Cortex stop is respected.

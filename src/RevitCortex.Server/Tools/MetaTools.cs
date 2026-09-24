@@ -8,7 +8,7 @@ namespace RevitCortex.Server.Tools;
 [McpServerToolType]
 public static class MetaTools
 {
-    [McpServerTool(Name = "say_hello"), Description("Test MCP connection to RevitCortex. Displays a greeting in Revit.")]
+    [McpServerTool(Name = "say_hello"), Description("Identify the connected Revit instance: returns Revit process ID, assigned bridge port and active document title (null if none). No dialog is shown.")]
     public static async Task<string> SayHello(RevitConnectionManager revit, CancellationToken ct)
     {
         var result = await revit.ExecuteAsync("say_hello", new JObject(), ct);

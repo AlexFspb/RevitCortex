@@ -33,7 +33,9 @@ Use its real absolute path in client configuration and restart the MCP clients
 after configuration changes. A server without an override defaults to 8080.
 It never scans for another available Revit port.
 
-Always check `get_project_info` from each client before making changes to verify
+Call `say_hello` first: it returns `revitProcessId`, `bridgePort`, and
+`activeDocumentTitle` (null if no document). The PID identifies the Revit process,
+not the stdio MCP server. Then check `get_project_info` before making changes to verify
 which project is attached. Window focus does not change the destination. A
 port identifies a running endpoint, not a permanent project identity: after
 closing Revit and launching a new process, that port can belong to a new model.
@@ -73,9 +75,10 @@ plugin or C# MCP server. Editing it from one Revit must not change another
 instance's destination. Settings displays the assigned port read-only and never
 writes it back, including when other settings are saved or reset.
 This is an intentional change from the previous shared-port setup: clients that
-used a saved custom port must now specify `REVITCORTEX_PORT` explicitly. The dev
-plugin also follows the 8080/8888 automatic pair unless explicitly overridden;
-its other dev settings remain separate.
+used a saved custom port must now specify `REVITCORTEX_PORT` explicitly. The Dev
+plugin uses its separate automatic pair **8081/8889**. Point the Dev MCP client
+explicitly at 8081 or 8889; the shared MCP executable defaults to Release port 8080.
+Its other Dev settings remain separate.
 
 Deploy updated Plugin/Core/Tools and the updated MCP server before testing.
 Close Revit and MCP clients before using `deploy.ps1` and `deploy-server.ps1`.
@@ -131,3 +134,16 @@ does not remove critical or destructive-operation confirmations.
 Automated tests exercise port precedence, concurrent exclusive TCP binding,
 exhaustion, sticky reassignment and routing isolation. They do not replace the
 Revit UI and model checks above.
+
+## Invalid configuration and optional fixed ports
+
+Automatic 8080 → 8888 remains the normal Release scenario. The launch script is
+only an optional alternative for fixed client roles. An invalid REVITCORTEX_PORT
+in the plugin logs a warning, displays one non-modal notice that closes itself,
+and falls back to its profile’s automatic pair. It does not remove the ribbon.
+The MCP server still rejects an invalid override instead of guessing its target.
+
+Manual checks: verify equivalent Revit document wrappers do not reset the session;
+start with an invalid override and confirm one non-blocking warning; compare
+say_hello PID/title/port across two processes; test Dev 8081/8889 alongside Release;
+verify the diagnostic report shows the assigned port and stopped/running state.

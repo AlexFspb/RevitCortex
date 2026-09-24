@@ -16,6 +16,8 @@ public class CortexSession
     public ISessionStore Store { get; }
     public DocumentCapabilities Capabilities { get; private set; }
     public string DetectedLocale { get; private set; }
+    /// <summary>Actual plugin listener port; independent of the document store.</summary>
+    public int? BridgePort { get; set; }
 
     /// <summary>
     /// Tool-result cache. Always non-null. Plugin wires invalidation to Revit
@@ -53,8 +55,9 @@ public class CortexSession
     public bool IsCurrentDocumentContext(DocumentContext context)
     {
         lock (_documentContextLock)
-            return context.Generation == _documentContextGeneration
-                && ReferenceEquals(context.Document, Store.Get<object>("activeDocument"));
+            // Lifecycle comparisons happen on the Revit UI thread. Worker threads
+            // compare only the generation and never invoke Document.Equals.
+            return context.Generation == _documentContextGeneration;
     }
 
     /// <summary>

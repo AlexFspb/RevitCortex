@@ -15,6 +15,38 @@ namespace RevitCortex.Tests.Router;
 
 public class DocumentLifecycleTests
 {
+    private sealed class DocumentWrapper(int id)
+    {
+        public int Id { get; } = id;
+        public int Comparisons { get; private set; }
+        public override bool Equals(object? other)
+        {
+            Comparisons++;
+            return other is DocumentWrapper wrapper && Id == wrapper.Id;
+        }
+        public override int GetHashCode() => Id;
+    }
+
+    [Fact]
+    public async Task EquivalentWrappers_PreserveContext_WorkerValidationNeverCallsDocumentEquals()
+    {
+        var (session, router) = Create();
+        var original = new DocumentWrapper(1);
+        router.SynchronizeActiveDocument(original);
+        var pending = session.CaptureDocumentContext();
+        router.SynchronizeActiveDocument(new DocumentWrapper(1));
+        Assert.True(session.IsCurrentDocumentContext(pending));
+        Assert.True(original.Comparisons > 0);
+        var comparisons = original.Comparisons;
+        Assert.True(await Task.Run(() => session.IsCurrentDocumentContext(pending)));
+        Assert.Equal(comparisons, original.Comparisons);
+        router.OnDocumentClosing(new DocumentWrapper(2));
+        Assert.True(session.IsCurrentDocumentContext(pending));
+        router.OnDocumentClosing(new DocumentWrapper(1));
+        Assert.Null(session.CaptureDocumentContext().Document);
+        Assert.False(session.IsCurrentDocumentContext(pending));
+    }
+
     private static (CortexSession Session, CortexRouter Router) Create()
     {
         var session = new CortexSession(new SessionStore());

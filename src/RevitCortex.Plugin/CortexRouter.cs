@@ -452,14 +452,14 @@ public class CortexRouter
     /// <summary>UI-thread only. Closing a background family must not reset the project.</summary>
     public void OnDocumentClosing(object document)
     {
-        if (ReferenceEquals(_session.CaptureDocumentContext().Document, document))
+        if (object.Equals(_session.CaptureDocumentContext().Document, document))
             _session.Reinitialize(new DocumentCapabilities(), "en");
     }
 
     /// <summary>Synchronize from ActiveUIDocument, including after a cancelled close.</summary>
     public void SynchronizeActiveDocument(object? document, string? locale = null)
     {
-        if (ReferenceEquals(_session.CaptureDocumentContext().Document, document)) return;
+        if (object.Equals(_session.CaptureDocumentContext().Document, document)) return;
         if (document == null) _session.Reinitialize(new DocumentCapabilities(), "en");
         else OnDocumentChanged(document, locale);
     }

@@ -266,7 +266,7 @@ public partial class GeneralSettingsPage : Page
             StatusBanner.BorderBrush = new SolidColorBrush(Color.FromRgb(224, 224, 224));
             StatusTitle.Text = "Server stopped";
             StatusDetail.Text = "Click 'Cortex Switch' in the ribbon to start";
-            PortBadgeText.Text = app?.HasAssignedPort == true ? $"Port {port}" : "Auto 8080 / 8888";
+            PortBadgeText.Text = app?.HasAssignedPort == true ? $"Port {port}" : $"Auto {string.Join(" / ", RevitCortex.Core.Hosting.CortexPort.AutomaticPorts(CortexEnvironment.Current.IsDev))}";
             PortBadge.Background = new SolidColorBrush(Color.FromRgb(224, 224, 224));
         }
     }
@@ -332,11 +332,11 @@ public partial class GeneralSettingsPage : Page
     private void ShowPortOverride()
     {
         var app = RevitCortexApp.Instance;
-        PortTextBox.Text = app?.HasAssignedPort == true ? app.Port.ToString() : "8080 / 8888";
+        PortTextBox.Text = app?.HasAssignedPort == true ? app.Port.ToString() : string.Join(" / ", RevitCortex.Core.Hosting.CortexPort.AutomaticPorts(CortexEnvironment.Current.IsDev));
         PortTextBox.IsReadOnly = true;
         PortHelpText.Text = app?.IsPortOverridden == true
             ? "Set by this Revit's launcher. Restart with another launcher port to change it."
-            : "Automatic: first free port, 8080 then 8888. Assigned when Cortex Switch starts.";
+            : $"Automatic: first free port, {string.Join(" then ", RevitCortex.Core.Hosting.CortexPort.AutomaticPorts(CortexEnvironment.Current.IsDev))}. Assigned when Cortex Switch starts.";
         PortTextBox.ToolTip = "This port is not saved to the shared settings file.";
     }
 

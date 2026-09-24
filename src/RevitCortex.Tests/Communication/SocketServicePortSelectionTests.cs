@@ -9,6 +9,53 @@ namespace RevitCortex.Tests.Communication;
 
 public class SocketServicePortSelectionTests
 {
+    private sealed class FailingService(bool threadFailure) : SocketService(
+        new CortexRouter(new CortexSession(new SessionStore()), new Router.FakeAnalyzer()))
+    {
+        public bool Fail { get; set; } = true;
+        protected override void StartListener(TcpListener listener)
+        {
+            base.StartListener(listener);
+            if (Fail && !threadFailure) throw new IOException("Injected failure after binding");
+        }
+        protected override void StartListenerThread(Thread thread)
+        {
+            if (Fail && threadFailure) throw new InvalidOperationException("Injected thread failure");
+            base.StartListenerThread(thread);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnexpectedStartupFailure_ReleasesPortAndAllowsRetry(bool threadFailure)
+    {
+        var port = ReserveThenReleaseTwoPorts()[0];
+        var service = new FailingService(threadFailure);
+        try
+        {
+            Assert.ThrowsAny<Exception>(() => service.StartOnFirstAvailablePort(port));
+            Assert.False(service.IsRunning);
+            Assert.False(service.HasBoundPort);
+            using (var probe = new TcpListener(IPAddress.Loopback, port))
+            {
+                probe.ExclusiveAddressUse = true;
+                probe.Start(); // Proves failed startup released the actual socket.
+            }
+            service.Fail = false;
+            Assert.Equal(port, service.StartOnFirstAvailablePort(port));
+            Assert.True(service.IsRunning);
+            service.Stop();
+            service.Fail = true;
+            Assert.ThrowsAny<Exception>(() => service.StartOnFirstAvailablePort(1));
+            Assert.True(service.HasBoundPort); // Failed restart preserves its assignment.
+            Assert.False(service.IsRunning);
+            service.Fail = false;
+            Assert.Equal(port, service.StartOnFirstAvailablePort(1));
+        }
+        finally { service.Stop(); }
+    }
+
     private static SocketService CreateService() => new(
         new CortexRouter(new CortexSession(new SessionStore()), new Router.FakeAnalyzer()));
 
