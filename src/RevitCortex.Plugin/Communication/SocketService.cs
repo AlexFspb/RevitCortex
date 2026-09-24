@@ -78,8 +78,8 @@ public class SocketService
         _listenerThread?.Join(1000);
 
         // Close the active client connections too: a connection accepted before
-        // Stop() would otherwise keep serving requests — e.g. stale commands
-        // reaching a document that OnDocumentClosing is tearing down.
+        // Stop() would otherwise keep serving requests after a manual shutdown.
+        // Document closure keeps the listener alive; execution validates context.
         foreach (var client in _activeClients.Keys)
         {
             try { client.Close(); } catch { /* already gone */ }

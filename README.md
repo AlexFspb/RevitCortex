@@ -206,3 +206,5 @@ For this fork, any legacy instruction that asks for R23/R24/R25/R27 build valida
 This repository is derived from `LuDattilo/RevitCortex`. The original project and its contributors remain the upstream source for the base implementation.
 
 The upstream copyright notice and MIT license are intentionally retained. See `LICENSE` for the exact terms.
+
+Once enabled, Cortex stays connected across family/project closure, including closing the last project. Model commands wait for an active document; queued commands for a closed or changed document are cancelled. Background families do not change the MCP target. Manual stop is respected. See [document lifecycle](docs/MULTIPLE_REVIT_INSTANCES.md#document-lifecycle).

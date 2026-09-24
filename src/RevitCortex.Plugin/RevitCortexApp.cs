@@ -289,37 +289,20 @@ public class RevitCortexApp : IExternalApplication
 
     private void OnDocumentOpened(object? sender, DocumentOpenedEventArgs args)
     {
-        var doc = args.Document;
-        if (doc == null) return;
-
-        var locale = LocaleDetector.Detect(doc);
-        _router!.OnDocumentChanged(doc, locale);
-
-        if (_uiApplication != null)
-            _session?.Store.Set("uiApplication", _uiApplication);
-
-        System.Diagnostics.Trace.WriteLine(
-            $"[RevitCortex] Document opened. Locale: {locale}, " +
-            $"Capabilities: {_router!.GetAvailableToolNames().Count} tools available");
+        // OpenDocumentFile may open a background family. Only ActiveUIDocument
+        // defines the MCP target; ViewActivated/Idling reconcile it when ready.
+        SynchronizeActiveDocument();
     }
 
     private void OnDocumentClosing(object? sender, DocumentClosingEventArgs args)
     {
         try
         {
-            if (_socketService != null && _socketService.IsRunning)
-            {
-                _socketService.Stop();
-                UpdateConnectionButtonIcon();
-                ServiceStateChanged?.Invoke();
-                System.Diagnostics.Trace.WriteLine(
-                    "[RevitCortex] Server stopped: document closing");
-            }
-
-            _session?.Reinitialize(new Core.Discovery.DocumentCapabilities(), "en");
-
-            System.Diagnostics.Trace.WriteLine(
-                "[RevitCortex] Session reset: document closing");
+            _router?.OnDocumentClosing(args.Document);
+            if (_uiApplication != null)
+                _session?.Store.Set("uiApplication", _uiApplication);
+            // The listener belongs to the Revit process, not to a document.
+            // Keep it (and its port) alive even when the last document closes.
         }
         catch (Exception ex)
         {
@@ -328,29 +311,46 @@ public class RevitCortexApp : IExternalApplication
         }
     }
 
+    private void SynchronizeActiveDocument()
+    {
+        if (_uiApplication == null || _router == null) return;
+        try
+        {
+            var doc = _uiApplication.ActiveUIDocument?.Document;
+            if (doc != null && !doc.IsValidObject) doc = null;
+            var currentDoc = _session?.CaptureDocumentContext().Document;
+            if (!ReferenceEquals(currentDoc, doc))
+            {
+                _router.SynchronizeActiveDocument(doc, doc == null ? "en" : LocaleDetector.Detect(doc));
+                _session?.Store.Set("uiApplication", _uiApplication);
+                System.Diagnostics.Trace.WriteLine(
+                    $"[RevitCortex] Active document synchronized: {doc?.Title ?? "(none)"}");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Do not retain a stale model if analysis fails. The next Idling retries.
+            _router.SynchronizeActiveDocument(null);
+            _session?.Store.Set("uiApplication", _uiApplication);
+            System.Diagnostics.Trace.WriteLine(
+                $"[RevitCortex] Active document synchronization failed: {ex.Message}");
+        }
+    }
+
     private void OnIdling(object? sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
     {
-        if (_uiApplication != null) return;
-        _uiApplication = sender as UIApplication;
-
-        if (_uiApplication != null)
+        if (_uiApplication == null)
         {
+            _uiApplication = sender as UIApplication;
+            if (_uiApplication == null) return;
             _uiApplication.ViewActivated += OnViewActivated;
             _session?.Store.Set("uiApplication", _uiApplication);
-
-            var doc = _uiApplication.ActiveUIDocument?.Document;
-            if (doc != null && _router != null &&
-                _session?.Store.Get<object>("activeDocument") == null)
-            {
-                var locale = LocaleDetector.Detect(doc);
-                _router.OnDocumentChanged(doc, locale);
-                System.Diagnostics.Trace.WriteLine(
-                    $"[RevitCortex] Session initialized from Idling: {doc.Title}, locale: {locale}");
-            }
-
             if (RevitCortex.Plugin.Updates.UpdateChecker.Latest?.HasUpdate == true)
                 ShowUpdateNotification();
         }
+
+        // Runs after close completes OR is cancelled, and handles an empty Revit.
+        SynchronizeActiveDocument();
     }
 
     private void OnUpdateAvailable()
@@ -380,19 +380,7 @@ public class RevitCortexApp : IExternalApplication
 
     private void OnViewActivated(object? sender, ViewActivatedEventArgs e)
     {
-        var doc = e.CurrentActiveView?.Document;
-        if (doc == null || _router == null) return;
-
-        var currentDoc = _session?.Store.Get<object>("activeDocument");
-        if (currentDoc != doc)
-        {
-            var locale = LocaleDetector.Detect(doc);
-            _router.OnDocumentChanged(doc, locale);
-            if (_uiApplication != null)
-                _session?.Store.Set("uiApplication", _uiApplication);
-            System.Diagnostics.Trace.WriteLine(
-                $"[RevitCortex] Document switched: {doc.Title}, locale: {locale}");
-        }
+        SynchronizeActiveDocument();
     }
 
     private void LoadPort()

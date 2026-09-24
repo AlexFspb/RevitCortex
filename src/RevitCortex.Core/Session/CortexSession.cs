@@ -30,6 +30,32 @@ public class CortexSession
     /// </summary>
     public long DocumentVersion => Interlocked.Read(ref _documentVersion);
     private long _documentVersion;
+    private readonly object _documentContextLock = new();
+    private long _documentContextGeneration;
+
+    public readonly struct DocumentContext
+    {
+        public long Generation { get; }
+        public object? Document { get; }
+        public DocumentContext(long generation, object? document)
+        {
+            Generation = generation;
+            Document = document;
+        }
+    }
+
+    public DocumentContext CaptureDocumentContext()
+    {
+        lock (_documentContextLock)
+            return new(_documentContextGeneration, Store.Get<object>("activeDocument"));
+    }
+
+    public bool IsCurrentDocumentContext(DocumentContext context)
+    {
+        lock (_documentContextLock)
+            return context.Generation == _documentContextGeneration
+                && ReferenceEquals(context.Document, Store.Get<object>("activeDocument"));
+    }
 
     /// <summary>
     /// Atomically increment <see cref="DocumentVersion"/>. Returns the new value.
@@ -111,15 +137,20 @@ public class CortexSession
         DetectedLocale = "en";
     }
 
-    public void Reinitialize(DocumentCapabilities capabilities, string locale)
+    public void Reinitialize(DocumentCapabilities capabilities, string locale, object? document = null)
     {
-        Store.Clear();
-        Capabilities = capabilities;
-        DetectedLocale = locale;
-
-        Cache.InvalidateAll();
-        BumpDocumentVersion();
-        AutoMode = false;
+        lock (_documentContextLock)
+        {
+            _documentContextGeneration++;
+            Store.Clear();
+            Capabilities = capabilities;
+            DetectedLocale = locale;
+            Cache.InvalidateAll();
+            BumpDocumentVersion();
+            AutoMode = false;
+            ApproveAll = false;
+            if (document != null) Store.Set("activeDocument", document);
+        }
     }
 
     /// <summary>

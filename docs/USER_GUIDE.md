@@ -348,3 +348,5 @@ Use these sources:
 - [`../AGENTS.md`](../AGENTS.md) — current fork development and safety rules.
 
 Historical upstream design documents may still mention other Revit versions. For this fork, the current Revit 2026 source/project files and fork-specific documentation take precedence.
+
+Once enabled with Cortex Switch, Cortex remains connected when a family or project closes, even if no projects remain open. With no active document, model commands return an error; opening a project restores access. Background families do not change the active MCP target. Commands waiting for a previous document are cancelled. Manual stop remains effective, and the normal/C# auto-run checkboxes retain their separate process-local preferences.

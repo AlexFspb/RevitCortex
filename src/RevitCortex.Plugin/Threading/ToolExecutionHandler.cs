@@ -16,6 +16,7 @@ public class ToolExecutionHandler : IExternalEventHandler
     private readonly AuditLogger _auditLogger;
     private int _executionId;
     private bool _hasPendingOrRunning;
+    private CortexSession.DocumentContext _pendingDocumentContext;
 
     public ToolExecutionHandler(AuditLogger? auditLogger = null)
     {
@@ -33,6 +34,7 @@ public class ToolExecutionHandler : IExternalEventHandler
         ICortexTool? tool;
         JObject? input;
         CortexSession? session;
+        CortexSession.DocumentContext documentContext;
 
         lock (_stateLock)
         {
@@ -40,6 +42,7 @@ public class ToolExecutionHandler : IExternalEventHandler
             tool = PendingTool;
             input = PendingInput;
             session = PendingSession;
+            documentContext = _pendingDocumentContext;
         }
 
         var discarded = false;
@@ -55,7 +58,16 @@ public class ToolExecutionHandler : IExternalEventHandler
                 return;
             }
 
-            var result = tool.Execute(input, session);
+            // Validate immediately before execution on Revit's UI thread.
+            // Never replay a queued command against a replacement document.
+            var contextValid = session.IsCurrentDocumentContext(documentContext);
+            if (contextValid && tool.RequiresDocument)
+                contextValid = IsActiveDocument(app, documentContext.Document);
+            var result = contextValid
+                ? tool.Execute(input, session)
+                : CortexResult<object>.Fail(CortexErrorCode.Cancelled,
+                    "The active document was closed or changed while this command was waiting. Nothing was executed.",
+                    suggestion: "Check the active project, then issue a new command. The Cortex server remains available.");
             lock (_stateLock)
             {
                 // Only store the result if this execution is still current
@@ -95,6 +107,7 @@ public class ToolExecutionHandler : IExternalEventHandler
                     PendingTool = null;
                     PendingInput = null;
                     PendingSession = null;
+                    _pendingDocumentContext = default;
                     _hasPendingOrRunning = false;
                     _resetEvent.Set();
                 }
@@ -102,7 +115,14 @@ public class ToolExecutionHandler : IExternalEventHandler
         }
     }
 
-    public bool TryPrepareExecution(ICortexTool tool, JObject input, CortexSession session)
+    private static bool IsActiveDocument(UIApplication app, object? expected)
+    {
+        return expected is Autodesk.Revit.DB.Document document && document.IsValidObject
+            && app?.ActiveUIDocument?.Document == document;
+    }
+
+    public bool TryPrepareExecution(ICortexTool tool, JObject input, CortexSession session,
+        CortexSession.DocumentContext? documentContext = null)
     {
         lock (_stateLock)
         {
@@ -113,6 +133,7 @@ public class ToolExecutionHandler : IExternalEventHandler
             PendingTool = tool;
             PendingInput = input;
             PendingSession = session;
+            _pendingDocumentContext = documentContext ?? session.CaptureDocumentContext();
             Result = null;
             _hasPendingOrRunning = true;
             _resetEvent.Reset();
@@ -132,6 +153,7 @@ public class ToolExecutionHandler : IExternalEventHandler
             PendingTool = null;
             PendingInput = null;
             PendingSession = null;
+            _pendingDocumentContext = default;
             _hasPendingOrRunning = false;
             _resetEvent.Set();
         }

@@ -217,3 +217,5 @@ Fork behavior should be consistent across:
 - `ai-skills/revitcortex/`
 
 Large upstream historical/specification documents may still describe the original multi-version project. When they conflict with this file on target version/build/deploy/access policy, the **Revit 2026 fork rules in this file win**.
+
+The TCP server is process-scoped: document close must not stop or restart it. Synchronize the session from ActiveUIDocument, never from a background DocumentOpened argument. Closing only the active document invalidates its context; Idling reconciles completed/cancelled closure. Validate the captured context again before ExternalEvent execution; never replay stale commands against another document.

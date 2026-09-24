@@ -75,3 +75,5 @@ Upstream: `https://github.com/LuDattilo/RevitCortex`
 ## Licenza
 
 Vedi `LICENSE` nel repository.
+
+Dopo l’attivazione, il server resta acceso anche chiudendo famiglie o progetti. Senza un documento attivo, i comandi del modello restituiscono un errore finché non viene aperto un progetto. I comandi in attesa per un documento precedente vengono annullati. L’arresto manuale resta rispettato.

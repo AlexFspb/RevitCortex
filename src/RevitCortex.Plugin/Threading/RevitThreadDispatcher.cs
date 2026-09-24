@@ -20,7 +20,7 @@ public class RevitThreadDispatcher
     }
 
     public CortexResult<object> Execute(ICortexTool tool, JObject input, CortexSession session,
-        int timeoutMs = 120000)
+        int timeoutMs = 120000, CortexSession.DocumentContext? documentContext = null)
     {
         // H5: only the prepare + Raise pair must be atomic against other requests; the
         // shared ToolExecutionHandler already rejects a concurrent request via
@@ -29,7 +29,7 @@ public class RevitThreadDispatcher
         // done OUTSIDE the lock.
         lock (_lock)
         {
-            if (!_handler.TryPrepareExecution(tool, input, session))
+            if (!_handler.TryPrepareExecution(tool, input, session, documentContext))
             {
                 return CortexResult<object>.Fail(CortexErrorCode.Timeout,
                     $"Tool '{tool.Name}' could not start because a previous Revit event is still pending or running",

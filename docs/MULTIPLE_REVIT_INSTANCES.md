@@ -87,6 +87,22 @@ concurrent edits of shared settings. Power BI browser callbacks still use the
 single port 27016; a second instance skips that callback listener while its MCP
 connection can run normally.
 
+## Document lifecycle
+
+Once enabled with Cortex Switch, the TCP server and assigned port stay active
+until explicitly stopped or Revit exits. Closing a temporary family, changing
+projects or closing the last project does not stop the server. With no active
+document, model commands return “No document open in Revit”. Opening a new
+project restores the document context automatically; manually stopping Cortex
+still keeps it off.
+
+The target comes only from Revit's ActiveUIDocument. Opening or closing a
+background family does not replace the active project's session. Pending commands
+are checked again on Revit's UI thread and cancelled if the target closed or
+changed. They are never automatically replayed against a replacement project.
+Cancelled document closure is reconciled on Idling. Both confirmation checkbox
+preferences remain independent and process-local.
+
 ## Script confirmation
 
 The optional, session-only **Allow auto-run** now counts down for **3 seconds**.
@@ -104,6 +120,13 @@ does not remove critical or destructive-operation confirmations.
 5. Confirm occupied ports produce an error instead of another assignment.
 6. Save/reset other settings: the displayed active port must stay unchanged.
 7. Verify Yes/No and the 3-second auto-run countdown in Revit.
+8. Open/close a temporary background family: the same TCP connection and project
+   remain available. Repeat with an active family and return to the project.
+9. Close the last project, query (expect no-document error), open another project
+   and query again without toggling Cortex. Cancel a document close and verify
+   the original project context returns. A queued command for a previous context
+   must be cancelled without modifying either project.
+10. Stop Cortex manually, then close/open a document: it must remain off.
 
 Automated tests exercise port precedence, concurrent exclusive TCP binding,
 exhaustion, sticky reassignment and routing isolation. They do not replace the

@@ -22,3 +22,5 @@ To uninstall: right-click uninstall.ps1 and choose "Run with PowerShell".
 
 Project: https://github.com/AlexFspb/RevitCortex
 Upstream: https://github.com/LuDattilo/RevitCortex
+
+Document lifecycle: once enabled, Cortex stays connected when families/projects close. With no active project, model commands return an error until a project is opened. Manually stopping Cortex keeps it off. Queued commands for an old document are cancelled, not replayed.

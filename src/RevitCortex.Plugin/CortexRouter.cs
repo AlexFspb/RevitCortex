@@ -158,6 +158,8 @@ public class CortexRouter
 
     public CortexResult<object> Route(string toolName, JObject input)
     {
+        var documentContext = _session.CaptureDocumentContext();
+        var documentVersion = _session.DocumentVersion;
         if (!_tools.TryGetValue(toolName, out var tool))
             return CortexResult<object>.Fail(CortexErrorCode.InvalidInput,
                 $"Tool '{toolName}' not found",
@@ -168,7 +170,7 @@ public class CortexRouter
                 $"Tool '{toolName}' is disabled",
                 suggestion: "Enable it in RevitCortex Settings > Tools");
 
-        if (tool.RequiresDocument && _session.Store.Get<object>("activeDocument") == null)
+        if (tool.RequiresDocument && documentContext.Document == null)
             return CortexResult<object>.Fail(CortexErrorCode.InvalidInput,
                 "No document open in Revit",
                 suggestion: "Open a Revit document before using this tool");
@@ -194,9 +196,12 @@ public class CortexRouter
         string? paramHash = null;
         if (cacheable != null)
         {
-            paramHash = HashParams(input);
+            // A delayed response from a previous document must never populate
+            // the new document's cache, including CacheScope.Session entries.
+            paramHash = documentContext.Generation + ":" + HashParams(input);
             if (_session.Cache.TryGet(toolName, paramHash, cacheable.CacheScope,
-                    _session.DocumentVersion, out var cached, out var cachedBytes))
+                    documentVersion, out var cached, out var cachedBytes)
+                && _session.IsCurrentDocumentContext(documentContext))
             {
                 stopwatch.Stop();
                 _auditLogger.LogWithPerf(toolName, BuildInputSummary(toolName, input),
@@ -218,7 +223,7 @@ public class CortexRouter
             if (_dispatcher != null && !onUiThread)
             {
                 var timeoutSeconds = (tool as ICommandTimeoutTool)?.CommandTimeoutSeconds ?? 120;
-                result = _dispatcher.Execute(tool, input, _session, timeoutSeconds * 1000);
+                result = _dispatcher.Execute(tool, input, _session, timeoutSeconds * 1000, documentContext);
             }
             else if (onUiThread && !IsToolReadOnly(toolName)
                      && !InlineUiThreadAllowedTools.Contains(toolName))
@@ -229,7 +234,10 @@ public class CortexRouter
             }
             else
             {
-                result = tool.Execute(input, _session);
+                result = _session.IsCurrentDocumentContext(documentContext)
+                    ? tool.Execute(input, _session)
+                    : CortexResult<object>.Fail(CortexErrorCode.Cancelled,
+                        "The active document changed before the command could start.");
             }
         }
         catch (Exception ex)
@@ -253,7 +261,7 @@ public class CortexRouter
         if (cacheable != null && paramHash != null && result.Success)
         {
             _session.Cache.Set(toolName, paramHash, cacheable.CacheScope,
-                _session.DocumentVersion, result, knownBytes: responseBytes);
+                documentVersion, result, knownBytes: responseBytes);
         }
 
         stopwatch.Stop();
@@ -438,8 +446,22 @@ public class CortexRouter
         var caps = new DocumentCapabilities();
         _analyzer.Analyze(document, caps);
 
-        _session.Reinitialize(caps, locale ?? "en");
-        _session.Store.Set("activeDocument", document);
+        _session.Reinitialize(caps, locale ?? "en", document);
+    }
+
+    /// <summary>UI-thread only. Closing a background family must not reset the project.</summary>
+    public void OnDocumentClosing(object document)
+    {
+        if (ReferenceEquals(_session.CaptureDocumentContext().Document, document))
+            _session.Reinitialize(new DocumentCapabilities(), "en");
+    }
+
+    /// <summary>Synchronize from ActiveUIDocument, including after a cancelled close.</summary>
+    public void SynchronizeActiveDocument(object? document, string? locale = null)
+    {
+        if (ReferenceEquals(_session.CaptureDocumentContext().Document, document)) return;
+        if (document == null) _session.Reinitialize(new DocumentCapabilities(), "en");
+        else OnDocumentChanged(document, locale);
     }
 
     public IReadOnlyList<string> GetAvailableToolNames()

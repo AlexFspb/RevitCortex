@@ -56,3 +56,5 @@ This does not disable sandbox validation, audit logging, read-only protection, o
 
 - `index_40_Tool_Signature_Index.md`: quick tool-signature lookup; `tool-schemas.txt` is canonical.
 - `index_41_Workflow_Source_Map.md`: workflow source map.
+
+Document closure no longer stops an enabled Cortex server. Background families do not replace the active UI document. If no project is active, open a project; do not toggle the server unnecessarily. A command cancelled because its document changed must not be blindly retried: verify the active project first.

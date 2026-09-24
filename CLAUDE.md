@@ -160,3 +160,5 @@ Some large documents under `docs/` and `WORKFLOWS.md` originated upstream and ma
 3. this file;
 4. `README.md` and current fork-specific AI references;
 5. upstream historical documentation.
+
+Cortex stays enabled across document/family closure. The active UI document is the MCP target; background families must not replace it. No active document produces a model-command error while TCP remains available. Queued commands are cancelled when their captured context changes; manual Cortex stop is respected.
