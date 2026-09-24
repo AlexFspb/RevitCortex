@@ -13,7 +13,7 @@ The MCP server instructions must not select arbitrary C# autonomously when a ded
 ## Before script execution
 
 1. Confirm that no dedicated tool covers the operation adequately.
-2. Explain the script approach when user consent is required by the client workflow.
+2. Work within the user-authorized task; do not add a separate chat-consent step. The configured Revit confirmation still applies.
 3. `EnableCodeExecution` must be enabled in RevitCortex settings.
 4. The code must pass `CodeSandbox.Validate`.
 5. Critical confirmation is requested inside Revit before execution.
@@ -82,3 +82,9 @@ Do not call modal family editing flows such as `Document.EditFamily` from the ex
 - Do not use custom C# just to save one ordinary dedicated-tool call.
 - Do not add persistence for `Allow auto-run` without an explicit product decision.
 - Do not describe auto-run as disabling security; it only automates the final critical approval after the visible countdown.
+
+## Results and Revit failures
+
+Return scalars, anonymous data, string-keyed dictionaries, arrays or LINQ projections. Convert Revit objects to numbers/strings yourself (ElementId.Value, XYZ.X/Y/Z); never return raw API objects, including collectors. Limits: depth 16, 100000 nodes, 256 KiB per string, 1 MiB response with transport reserve. ResultSerializationFailed includes reason, resultPath and transactionState. Auto/group prepare the response before commit and attempt rollback on invalid results; none cannot promise rollback. Never blindly retry; verify state and external effects.
+
+Every mutation script must configure transaction-level IFailuresPreprocessor and SetClearAfterRollback(true) before changes. Auto mode does so automatically. In group/none, call RevitCortex.Tools.CodeExecution.ScriptFailureHandling.Configure(tx) after every tx.Start() and before mutations. Unexpected warnings/errors roll back the affected transaction. Retain failure descriptions, severity and numeric element IDs, check TransactionStatus, retain the diagnostic JSON and use a bounded dry-run before bulk replacement. Never force-accept unresolved errors or delete affected elements as automatic recovery. Cancelled alone is ambiguous; verify context/state. This cannot intercept native crashes, all modal windows or iterator code that never returns. Cortex approval/security dialogs remain unchanged; no persistent auto-approval.

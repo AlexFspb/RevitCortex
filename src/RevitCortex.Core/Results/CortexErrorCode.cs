@@ -9,5 +9,6 @@ public enum CortexErrorCode
     InvalidInput = 400,
     Timeout = 500,
     Cancelled = 600,
+    ResultSerializationFailed = 700,
     Unknown = 900
 }

@@ -127,7 +127,7 @@ public class TransactionFailureHandlingSourceTests
     public void CodeExecutors_AdoptTheFailurePreprocessorAndCheckCommit(string folder, string file)
     {
         var src = ReadTool(folder, file);
-        Assert.Contains("TransactionFailureHandling.SuppressWarnings(", src);
+        Assert.Contains(file == "RoslynExecutor.cs" ? "ScriptFailureHandling.Configure(" : "TransactionFailureHandling.SuppressWarnings(", src);
         Assert.Contains("TransactionStatus.Committed", src);
         // The transaction-group path must verify Assimilate() too, not assume success.
         Assert.Contains("Assimilate()", src);

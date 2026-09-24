@@ -46,9 +46,12 @@ public class SendCodeDescriptionTests
     }
 
     [Fact]
-    public void ServerDescription_RequiresExplicitUserConsent()
+    public void ServerDescription_PreservesAutonomousWorkAndExplainsResultFailures()
     {
-        Assert.Contains("consent", ServerToolDescription(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no separate chat approval", ServerToolDescription(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ResultSerializationFailed", ServerToolDescription());
+        Assert.Contains("transactionState", ServerToolDescription());
+        Assert.DoesNotContain("obtaining explicit user consent", ServerToolDescription());
     }
 
     [Fact]

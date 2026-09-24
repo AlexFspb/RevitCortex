@@ -208,3 +208,7 @@ This repository is derived from `LuDattilo/RevitCortex`. The original project an
 The upstream copyright notice and MIT license are intentionally retained. See `LICENSE` for the exact terms.
 
 Once enabled, Cortex stays connected across family/project closure, including closing the last project. Model commands wait for an active document; queued commands for a closed or changed document are cancelled. Background families do not change the MCP target. Manual stop is respected. See [document lifecycle](docs/MULTIPLE_REVIT_INSTANCES.md#document-lifecycle).
+
+### Safe C# results and Revit failures
+
+Script results are validated before Cortex commits model changes. Return plain data rather than Revit objects. Lazy LINQ stays supported within bounded depth, node and response-size limits. Invalid results report a structured error and rollback state. Auto transactions roll back unexpected Revit warnings/errors without waiting for a failure dialog; script-owned transactions must configure the supplied handler. See [compatibility, error examples and manual verification](docs/safe-script-results.md).
