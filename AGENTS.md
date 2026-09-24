@@ -121,6 +121,14 @@ Do not use modal family-editing flows such as `Document.EditFamily` from the MCP
 
 ## Critical script confirmation / Auto-run
 
+Normal destructive/bulk confirmations use `UI/OperationConfirmationWindow`: one
+Allow once button, a process-local auto-run checkbox initially enabled, and a
+3-second countdown for each request. X/Escape cancels; unchecking waits for manual
+approval. The normal preference is independent of the critical C# preference.
+The old two-minute/unlimited choices and floating Auto mode window are removed.
+Legacy Core approval flags are retained for compatibility but are not enabled by
+the current plugin UI.
+
 `send_code_to_revit` uses `UI/CriticalConfirmationWindow`.
 
 The dialog offers:
@@ -142,7 +150,7 @@ Auto-run automates only the last approval step. It must never bypass sandbox val
 - `GeneralSettingsPage.xaml` control names must remain aligned with its code-behind.
 - `ToolsSettingsPage.xaml` must retain `CodeExecToggle` because the code-behind uses it.
 - Revit 2026 wording should be used in fork-specific visible descriptions.
-- Normal destructive confirmations remain handled by `ConfirmationHelper` / native TaskDialog behavior.
+- Normal destructive confirmations use `ConfirmationHelper` / `OperationConfirmationWindow`.
 - Critical custom-C# confirmation uses the dedicated WPF window.
 - `Diagnostic Report` is local-only; it must not silently email or upload data.
 

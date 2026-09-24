@@ -87,6 +87,12 @@ Never use modal `Document.EditFamily` flows from the MCP external-event context.
 
 ## Critical confirmation and `Allow auto-run`
 
+Ordinary destructive/bulk requests have their own `OperationConfirmationWindow`:
+one Allow once button, auto-run checked by default, and a fresh 3-second countdown
+per request. X/Escape cancels. Unchecking disables this countdown for the current
+process. The two-minute/unlimited menu and floating Auto mode window are removed.
+This normal-operation preference does not enable critical C# auto-run.
+
 The Revit 2026 fork uses a dedicated critical confirmation window for custom C# execution.
 
 - **Yes** approves immediately.

@@ -48,7 +48,7 @@ public class CortexSession
     /// Confirmation callback for critical operations such as custom C# execution.
     /// Critical requests never consume the generic ApproveAll or AutoMode flags and
     /// fail closed when no callback exists. The Plugin callback may provide its own
-    /// explicit UI policy; the Revit 2026 fork uses a visible session-only 10-second
+    /// explicit UI policy; the Revit 2026 fork uses a visible session-only 3-second
     /// auto-run countdown inside that critical confirmation window.
     /// </summary>
     public Func<string, int, string?, bool?>? CriticalConfirmAction { get; set; }

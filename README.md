@@ -54,6 +54,14 @@ Write access is controlled by the actual operating/safety settings instead:
 
 ## Main fork customization: timed script approval
 
+Ordinary destructive/bulk operations now use a separate per-operation window:
+one **Разрешить однократно / Allow once** button and an **Автовыполнение / Auto-run**
+checkbox, enabled by default at Revit startup. Each request counts down for
+3 seconds. Uncheck it to wait for manual approval; X or Escape cancels the current
+request. The choice lasts only for this process. The old two-minute/unlimited
+approval menu and floating Auto mode ON window are removed. This setting is
+independent of the custom-C# window described below, which remains opt-in.
+
 `send_code_to_revit` remains a last-resort feature for operations that are not covered by a dedicated RevitCortex tool.
 
 Custom C# execution is **disabled by default**. When enabled in **Settings → Tools**, every script still passes the existing settings gate, sandbox validation, router permissions and audit logging before execution.

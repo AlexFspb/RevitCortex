@@ -117,7 +117,12 @@ read/identify targets
 
 RevitCortex must not report success when Revit rolls back the transaction.
 
-Normal destructive confirmations may use the existing Yes / Yes to All / Auto controls. This is separate from the critical custom-C# confirmation described below.
+Normal destructive confirmations use one Allow once button and an auto-run
+checkbox, checked by default when Revit starts. Every request gets its own
+3-second countdown. Uncheck to wait for manual approval; X/Escape cancels the
+current request. The normal preference is process-only. The old Yes to All and
+unlimited Auto choices and floating status window are removed. Critical custom-C#
+confirmation below has its own independent, initially unchecked preference.
 
 ---
 

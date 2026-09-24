@@ -1,6 +1,4 @@
 using System;
-using Autodesk.Revit.UI;
-using RevitCortex.Core.Session;
 
 namespace RevitCortex.Plugin.UI;
 
@@ -16,71 +14,21 @@ public static class ConfirmationHelper
     /// <param name="action">Action verb: "delete", "purge", "rename", "modify", etc.</param>
     /// <param name="elementCount">Number of elements affected.</param>
     /// <param name="description">Optional description of what the operation will do.</param>
-    /// <returns>true = Yes, false = No, null = Yes to All.</returns>
+    /// <returns>true for this operation only; false when cancelled or the UI fails.</returns>
     public static bool? Confirm(string action, int elementCount, string? description)
     {
         if (elementCount <= 0) return true;
-
-        var dialog = new TaskDialog("RevitCortex 2026 Confirmation")
+        try
         {
-            MainInstruction = $"About to {action} ({elementCount} element(s))",
-            CommonButtons = TaskDialogCommonButtons.None
-        };
-
-        if (!string.IsNullOrEmpty(description))
-            dialog.MainContent = description;
-
-        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Yes",
-            "Approve this operation");
-        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Yes to All",
-            "Approve this and all remaining operations without asking again (2 min)");
-        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink3, "Auto",
-            "Approve all operations automatically — a floating window lets you stop at any time");
-        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink4, "No",
-            "Cancel this operation");
-
-        var result = dialog.Show();
-        if (result == TaskDialogResult.CommandLink2) return null;
-        if (result == TaskDialogResult.CommandLink1) return true;
-        if (result == TaskDialogResult.CommandLink3) return AutoSentinel;
-        return false;
-    }
-
-    public const bool AutoSentinel = true;
-
-    public static bool? ConfirmWithSession(string action, int elementCount, string? description,
-        CortexSession session)
-    {
-        if (elementCount <= 0) return true;
-
-        var dialog = new TaskDialog("RevitCortex 2026 Confirmation")
-        {
-            MainInstruction = $"About to {action} ({elementCount} element(s))",
-            CommonButtons = TaskDialogCommonButtons.None
-        };
-
-        if (!string.IsNullOrEmpty(description))
-            dialog.MainContent = description;
-
-        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Yes",
-            "Approve this operation");
-        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Yes to All",
-            "Approve this and all remaining operations without asking again (2 min)");
-        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink3, "Auto",
-            "Approve all operations automatically — a floating window lets you stop at any time");
-        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink4, "No",
-            "Cancel this operation");
-
-        var result = dialog.Show();
-        if (result == TaskDialogResult.CommandLink2) return null;
-        if (result == TaskDialogResult.CommandLink1) return true;
-        if (result == TaskDialogResult.CommandLink3)
-        {
-            session.AutoMode = true;
-            AutoModeChanged?.Invoke(true);
-            return true;
+            var dialog = new OperationConfirmationWindow(action, elementCount, description);
+            return dialog.ShowDialog() == true;
         }
-        return false;
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine(
+                $"[RevitCortex] Operation confirmation window failed: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>
@@ -104,11 +52,6 @@ public static class ConfirmationHelper
             return false;
         }
     }
-
-    public static event Action<bool>? AutoModeChanged;
-
-    public static void NotifyAutoModeChanged(bool active) => AutoModeChanged?.Invoke(active);
-
     public static Core.Results.CortexResult<object> CancelledResult()
     {
         return Core.Results.CortexResult<object>.Fail(

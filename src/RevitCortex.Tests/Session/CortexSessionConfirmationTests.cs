@@ -16,13 +16,6 @@ public class CortexSessionConfirmationTests
         return new CortexSession(new SessionStore());
     }
 
-    private static string ReadAutoModeWindowSource()
-    {
-        var path = Path.GetFullPath(Path.Combine("..", "..", "..", "..",
-            "RevitCortex.Plugin", "UI", "AutoModeWindow.xaml.cs"));
-        return File.ReadAllText(path);
-    }
-
     [Fact]
     public void RequestConfirmation_WhenAutoModeOn_AutoApprovesWithoutInvokingCallback()
     {
@@ -86,13 +79,16 @@ public class CortexSessionConfirmationTests
     }
 
     [Fact]
-    public void AutoModeWindow_HasNoInactivityTimer()
+    public void PerOperationApproval_InvokesEachCallback_WithoutArmingLegacyModes()
     {
-        var source = ReadAutoModeWindowSource();
-
-        Assert.DoesNotContain("DispatcherTimer", source);
-        Assert.DoesNotContain("InactivitySeconds", source);
-        Assert.DoesNotContain("OnInactivityElapsed", source);
+        var session = NewSession();
+        var calls = 0;
+        session.ConfirmAction = (_, _, _) => { calls++; return true; };
+        Assert.True(session.RequestConfirmation("delete", 5));
+        Assert.True(session.RequestConfirmation("delete", 2));
+        Assert.Equal(2, calls);
+        Assert.False(session.AutoMode);
+        Assert.False(session.ApproveAll);
     }
 
     [Fact]

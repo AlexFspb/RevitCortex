@@ -32,6 +32,10 @@ Il server MCP viene installato in:
 
 Dopo il riavvio di Revit 2026, usa **Cortex Switch** nel ribbon per avviare o fermare il bridge locale RevitCortex. Il servizio è disattivato per impostazione predefinita.
 
+## Conferma delle operazioni ordinarie
+
+Ogni operazione che richiede conferma mostra un solo pulsante per autorizzarla una volta. L'esecuzione automatica dopo 3 secondi è selezionata per impostazione predefinita; disattivandola, la finestra attende il consenso manuale. La scelta vale fino alla chiusura di Revit. La croce o Escape annullano l'operazione corrente. Le vecchie opzioni di consenso per 2 minuti o senza scadenza e la finestra «Auto mode ON» sono rimosse. Le conferme C# restano separate e richiedono di abilitare esplicitamente il loro auto-run.
+
 ## Esecuzione C# (`send_code_to_revit`)
 
 L'esecuzione di codice C# è una funzione avanzata e resta **disabilitata per impostazione predefinita**. Può essere abilitata da **Settings → Tools**.

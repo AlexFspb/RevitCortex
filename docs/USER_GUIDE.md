@@ -166,6 +166,17 @@ Do not use modal family-editing flows such as `Document.EditFamily` from the MCP
 
 ## Allow auto-run and 3-second approval
 
+**Ordinary operations:** the confirmation window has one **Разрешить однократно**
+(Allow once) button and an **Автовыполнение** (Auto-run) checkbox. It starts checked
+in a new Revit process and approves the current request after 3 seconds. Uncheck
+to wait for a manual click. The choice is remembered only until Revit closes;
+X or Escape cancels the current request. Each subsequent request still gets its
+own window and countdown. The two-minute/unlimited menu and floating Auto mode ON
+window no longer appear.
+
+**Custom C#:** its separate confirmation window and preference are unchanged, as
+described below. Enabling normal-operation auto-run does not enable C# auto-run.
+
 This fork changes the critical confirmation flow for custom C# scripts.
 
 The dialog contains:

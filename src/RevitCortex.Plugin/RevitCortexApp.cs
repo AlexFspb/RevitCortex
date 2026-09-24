@@ -25,7 +25,7 @@ public class RevitCortexApp : IExternalApplication
     private UIApplication? _uiApplication;
     private int _port = CortexPort.PrimaryPort;
     private Autodesk.Revit.UI.PushButton? _connectButton;
-    private UI.AutoModeWindow? _autoModeWindow;
+
     private bool _updateNotificationShown;
     private PbiSelectHttpListener? _pbiSelectListener;
     private PbiActionEventHandler? _pbiActionHandler;
@@ -74,11 +74,8 @@ public class RevitCortexApp : IExternalApplication
 
             var store = new SessionStore();
             _session = new CortexSession(store);
-            _session.ConfirmAction = (action, count, desc) =>
-                ConfirmationHelper.ConfirmWithSession(action, count, desc, _session);
+            _session.ConfirmAction = ConfirmationHelper.Confirm;
             _session.CriticalConfirmAction = ConfirmationHelper.ConfirmCritical;
-            _session.AutoModeActivity += OnAutoModeActivity;
-            ConfirmationHelper.AutoModeChanged += OnAutoModeChanged;
             var analyzer = new DocumentAnalyzer();
 
             var auditLogger = new AuditLogger(CortexEnvironment.Current.AuditLogPath);
@@ -140,7 +137,6 @@ public class RevitCortexApp : IExternalApplication
         {
             Telemetry.TelemetryBootstrap.Shutdown();
 
-            ConfirmationHelper.AutoModeChanged -= OnAutoModeChanged;
             _pbiSelectListener?.Dispose();
             _pbiSelectListener = null;
             _socketService?.Stop();
@@ -245,54 +241,6 @@ public class RevitCortexApp : IExternalApplication
             : "Start RevitCortex 2026 server";
     }
 
-    private void OnAutoModeChanged(bool active)
-    {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.CheckAccess())
-        {
-            dispatcher.BeginInvoke((System.Action)(() => OnAutoModeChanged(active)));
-            return;
-        }
-
-        if (active)
-        {
-            if (_autoModeWindow != null) return;
-            try
-            {
-                var revitHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
-                _autoModeWindow = new UI.AutoModeWindow(revitHandle);
-                _autoModeWindow.StopRequested += OnAutoModeWindowStopRequested;
-                _autoModeWindow.Closed += (_, _) => _autoModeWindow = null;
-                _autoModeWindow.Show();
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Trace.WriteLine(
-                    $"[RevitCortex] Could not show Auto mode window: {ex.Message}");
-                _autoModeWindow = null;
-            }
-        }
-        else
-        {
-            _autoModeWindow?.CloseFromHost();
-            _autoModeWindow = null;
-        }
-    }
-
-    private void OnAutoModeActivity()
-    {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher == null) return;
-        dispatcher.BeginInvoke((System.Action)(() => _autoModeWindow?.RegisterActivity()));
-    }
-
-    private void OnAutoModeWindowStopRequested()
-    {
-        if (_session != null)
-            _session.AutoMode = false;
-        ConfirmationHelper.NotifyAutoModeChanged(false);
-    }
-
     private void CreateRibbonPanel(UIControlledApplication application)
     {
         string panelTitle = CortexEnvironment.Current.IsDev ? "RevitCortex 2026 Dev" : "RevitCortex 2026";
@@ -369,7 +317,6 @@ public class RevitCortexApp : IExternalApplication
             }
 
             _session?.Reinitialize(new Core.Discovery.DocumentCapabilities(), "en");
-            ConfirmationHelper.NotifyAutoModeChanged(false);
 
             System.Diagnostics.Trace.WriteLine(
                 "[RevitCortex] Session reset: document closing");
