@@ -329,6 +329,7 @@ public class RevitCortexApp : IExternalApplication
                 System.Diagnostics.Trace.WriteLine(
                     $"[RevitCortex] Active document synchronized: {doc?.Title ?? "(none)"}");
             }
+            _session?.UpdateDocumentTitle(doc?.Title);
         }
         catch (Exception ex)
         {

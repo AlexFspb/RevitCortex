@@ -94,8 +94,9 @@ public class ToolExecutionHandler : IExternalEventHandler
             lock (_stateLock)
             {
                 if (_executionId == myId)
-                    Result = CortexResult<object>.Fail(
-                        CortexErrorCode.Unknown, $"Unhandled exception: {ex.Message}");
+                    Result = ex is ConfirmationFailedException confirmation
+                        ? confirmation.ToResult()
+                        : CortexResult<object>.Fail(CortexErrorCode.Unknown, $"Unhandled exception: {ex.Message}");
             }
         }
         finally

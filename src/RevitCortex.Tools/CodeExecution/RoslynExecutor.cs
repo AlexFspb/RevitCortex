@@ -33,6 +33,8 @@ public static class RoslynExecutor
         string? scriptPath = null,
         string? scriptLifetime = null)
     {
+        var modeError = ScriptTransactionMode.Validate(transactionMode);
+        if (modeError != null) return modeError;
         try
         {
             var wrappedCode = WrapCode(code);

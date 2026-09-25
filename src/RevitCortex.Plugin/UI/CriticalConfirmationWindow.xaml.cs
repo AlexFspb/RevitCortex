@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.ComponentModel;
+using RevitCortex.Core.Session;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -16,6 +18,7 @@ public partial class CriticalConfirmationWindow : Window
 {
     private const int AutoApproveSeconds = 3;
     private readonly DispatcherTimer _timer;
+    private readonly ConfirmationDialogLifecycle _lifecycle = new();
     private int _secondsRemaining = AutoApproveSeconds;
 
     /// <summary>
@@ -56,7 +59,7 @@ public partial class CriticalConfirmationWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        if (AutoApproveCheckBox.IsChecked == true)
+        if (_lifecycle.MarkLoaded() && AutoApproveCheckBox.IsChecked == true)
             StartCountdown();
     }
 
@@ -76,7 +79,7 @@ public partial class CriticalConfirmationWindow : Window
     {
         _secondsRemaining = AutoApproveSeconds;
         UpdateYesButtonText();
-        if (!_timer.IsEnabled)
+        if (_lifecycle.IsActive && !_timer.IsEnabled)
             _timer.Start();
     }
 
@@ -90,6 +93,7 @@ public partial class CriticalConfirmationWindow : Window
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
+        if (!_lifecycle.IsActive) { _timer.Stop(); return; }
         if (AutoApproveCheckBox.IsChecked != true)
         {
             StopCountdown(reset: true);
@@ -100,8 +104,7 @@ public partial class CriticalConfirmationWindow : Window
         if (_secondsRemaining <= 0)
         {
             _timer.Stop();
-            DialogResult = true;
-            Close();
+            Finish(true);
             return;
         }
 
@@ -118,21 +121,39 @@ public partial class CriticalConfirmationWindow : Window
     private void Yes_Click(object sender, RoutedEventArgs e)
     {
         _timer.Stop();
-        DialogResult = true;
-        Close();
+        Finish(true);
     }
 
     private void No_Click(object sender, RoutedEventArgs e)
     {
         _timer.Stop();
-        DialogResult = false;
-        Close();
+        Finish(false);
+    }
+
+    public bool? ShowConfirmation() => _lifecycle.Show(ShowDialog, CleanupConfirmation);
+
+    private void Finish(bool accepted)
+    {
+        _timer.Stop();
+        _lifecycle.Complete(accepted, value => DialogResult = value, Close);
+    }
+
+    public void CleanupConfirmation()
+    {
+        _lifecycle.End();
+        _timer.Stop();
+        _timer.Tick -= Timer_Tick;
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        CleanupConfirmation();
+        base.OnClosing(e);
     }
 
     protected override void OnClosed(EventArgs e)
     {
-        _timer.Stop();
-        _timer.Tick -= Timer_Tick;
+        CleanupConfirmation();
         base.OnClosed(e);
     }
 }

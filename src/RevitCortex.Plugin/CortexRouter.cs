@@ -158,7 +158,30 @@ public class CortexRouter
 
     public CortexResult<object> Route(string toolName, JObject input)
     {
-        var documentContext = _session.CaptureDocumentContext();
+        var context = _session.CaptureDocumentContext();
+        var requestId = Guid.NewGuid().ToString("N");
+        var port = _session.BridgePort;
+        var summary = BuildInputSummary(toolName, input);
+        var code = toolName == "send_code_to_revit" ? input["code"]?.Value<string>() : null;
+        var codeHash = string.IsNullOrEmpty(code) ? null : ComputeSha256(code!);
+        var elapsed = Stopwatch.StartNew();
+        _auditLogger.LogRequest(requestId, "request_started", toolName, port, context.Title,
+            context.Generation, summary, codeHash);
+        CortexResult<object> response;
+        try { response = RouteCore(toolName, input, context); }
+        catch (ConfirmationFailedException ex) { response = ex.ToResult(); }
+        catch (Exception ex)
+        {
+            response = CortexResult<object>.Fail(CortexErrorCode.Unknown, ex.Message,
+                suggestion: "Verify the model and request journal before retrying; do not retry automatically.");
+        }
+        _auditLogger.LogRequest(requestId, "response_returned", toolName, port, context.Title,
+            context.Generation, summary, codeHash, response, elapsed.ElapsedMilliseconds);
+        return response;
+    }
+
+    private CortexResult<object> RouteCore(string toolName, JObject input, CortexSession.DocumentContext documentContext)
+    {
         var documentVersion = _session.DocumentVersion;
         if (!_tools.TryGetValue(toolName, out var tool))
             return CortexResult<object>.Fail(CortexErrorCode.InvalidInput,
@@ -245,7 +268,7 @@ public class CortexRouter
             // Nothing may escape Route as a raw exception.
             System.Diagnostics.Trace.WriteLine(
                 $"[RevitCortex] Route('{toolName}') unhandled: {ex}");
-            result = CortexResult<object>.Fail(CortexErrorCode.Unknown,
+            result = ex is ConfirmationFailedException confirmation ? confirmation.ToResult() : CortexResult<object>.Fail(CortexErrorCode.Unknown,
                 $"Unhandled exception: {ex.Message}",
                 suggestion: "Retry; if it persists, send a support report from the RevitCortex ribbon.");
         }

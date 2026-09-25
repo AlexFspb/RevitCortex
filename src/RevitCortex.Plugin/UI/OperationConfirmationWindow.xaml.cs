@@ -16,6 +16,7 @@ public partial class OperationConfirmationWindow : Window
     public static bool AutoRunEnabled { get; private set; } = true;
     private readonly OperationApprovalCountdown _approval;
     private readonly DispatcherTimer _timer;
+    private readonly ConfirmationDialogLifecycle _lifecycle = new();
     private bool _initialized;
     private bool _closed;
 
@@ -40,6 +41,7 @@ public partial class OperationConfirmationWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        if (!_lifecycle.MarkLoaded()) return;
         _approval.Start();
         if (_approval.AutoRunEnabled) _timer.Start();
     }
@@ -51,12 +53,12 @@ public partial class OperationConfirmationWindow : Window
         AutoRunEnabled = AutoRunCheckBox.IsChecked == true;
         _approval.SetAutoRun(AutoRunEnabled);
         UpdateButton();
-        if (IsLoaded && AutoRunEnabled) _timer.Start();
+        if (_lifecycle.IsActive && AutoRunEnabled) _timer.Start();
     }
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
-        if (_closed) return;
+        if (!_lifecycle.IsActive) { _timer.Stop(); return; }
         _approval.Tick();
         UpdateButton();
         if (_approval.Decision == true) FinishApproval();
@@ -77,7 +79,7 @@ public partial class OperationConfirmationWindow : Window
     {
         _timer.Stop();
         // Setting DialogResult closes a modal window. Do not close it twice.
-        DialogResult = _approval.Decision == true;
+        _lifecycle.Complete(_approval.Decision == true, value => DialogResult = value, Close);
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -87,17 +89,26 @@ public partial class OperationConfirmationWindow : Window
         Close();
     }
 
-    protected override void OnClosing(CancelEventArgs e)
+    public bool? ShowConfirmation() => _lifecycle.Show(ShowDialog, CleanupConfirmation);
+
+    public void CleanupConfirmation()
     {
         _closed = true;
+        _lifecycle.End();
         _timer.Stop();
+        _timer.Tick -= Timer_Tick;
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        CleanupConfirmation();
         _approval.Cancel(); // No effect on an already-approved terminal decision.
         base.OnClosing(e);
     }
 
     protected override void OnClosed(EventArgs e)
     {
-        _timer.Tick -= Timer_Tick;
+        CleanupConfirmation();
         base.OnClosed(e);
     }
 }

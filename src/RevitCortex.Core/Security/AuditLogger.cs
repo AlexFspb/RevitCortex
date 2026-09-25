@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Diagnostics;
+using RevitCortex.Core.Hosting;
 using Newtonsoft.Json;
 using RevitCortex.Core.Results;
 
@@ -17,9 +19,7 @@ public class AuditLogger
 
     public AuditLogger(string? logPath = null)
     {
-        _logPath = logPath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".revitcortex", "audit.jsonl");
+        _logPath = logPath ?? CortexEnvironment.Current.AuditLogPath;
     }
 
     /// <summary>
@@ -70,19 +70,42 @@ public class AuditLogger
         }, toolName);
     }
 
-    private void WriteEntry(object entry, string toolName)
-    {
-        var json = JsonConvert.SerializeObject(entry, Formatting.None);
+    /// <summary>Per-process request journal; separate from legacy audit consumers.</summary>
+    public string RequestLogPath => Path.Combine(Path.GetDirectoryName(_logPath) ?? ".",
+        Path.GetFileNameWithoutExtension(_logPath) + ".requests-" + Process.GetCurrentProcess().Id + ".jsonl");
 
+    public void LogRequest(string requestId, string phase, string toolName, int? port,
+        string? documentTitle, long documentGeneration, string inputSummary,
+        string? codeHash = null, CortexResult<object>? response = null, long? durationMs = null)
+    {
+        WriteEntry(new
+        {
+            ts = DateTime.UtcNow.ToString("o"), v = 3, requestId, phase,
+            revitProcessId = Process.GetCurrentProcess().Id, bridgePort = port,
+            buildId = CortexBuild.Id, coreModuleId = CortexBuild.CoreModuleId,
+            activeDocumentTitle = documentTitle, documentGeneration,
+            tool = toolName, input_summary = Truncate(inputSummary, 500), codeHash,
+            result = response == null ? "started" : response.Success ? "ok" : "fail",
+            error_code = response?.Error?.Code.ToString(),
+            error_message = response?.Error == null ? null : Truncate(response.Error.Message, 4096), duration_ms = durationMs,
+            // Timeout is a response, not proof that the Revit operation has stopped.
+            executionMayStillBeRunning = response?.Error?.Code == CortexErrorCode.Timeout
+        }, toolName, RequestLogPath);
+    }
+
+    private void WriteEntry(object entry, string toolName, string? destination = null)
+    {
         try
         {
+            var json = JsonConvert.SerializeObject(entry, Formatting.None);
+            var path = destination ?? _logPath;
             lock (_lock)
             {
-                var dir = Path.GetDirectoryName(_logPath);
+                var dir = Path.GetDirectoryName(path);
                 if (dir != null && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
-                File.AppendAllText(_logPath, json + Environment.NewLine);
+                File.AppendAllText(path, json + Environment.NewLine);
             }
         }
         catch

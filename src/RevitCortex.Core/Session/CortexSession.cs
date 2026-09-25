@@ -34,22 +34,31 @@ public class CortexSession
     private long _documentVersion;
     private readonly object _documentContextLock = new();
     private long _documentContextGeneration;
+    private string? _documentTitle;
+
+    // Set on the Revit UI thread; background audit code reads only this string.
+    public void UpdateDocumentTitle(string? title)
+    {
+        lock (_documentContextLock) _documentTitle = title;
+    }
 
     public readonly struct DocumentContext
     {
         public long Generation { get; }
         public object? Document { get; }
-        public DocumentContext(long generation, object? document)
+        public string? Title { get; }
+        public DocumentContext(long generation, object? document, string? title = null)
         {
             Generation = generation;
             Document = document;
+            Title = title;
         }
     }
 
     public DocumentContext CaptureDocumentContext()
     {
         lock (_documentContextLock)
-            return new(_documentContextGeneration, Store.Get<object>("activeDocument"));
+            return new(_documentContextGeneration, Store.Get<object>("activeDocument"), _documentTitle);
     }
 
     public bool IsCurrentDocumentContext(DocumentContext context)
@@ -145,6 +154,7 @@ public class CortexSession
         lock (_documentContextLock)
         {
             _documentContextGeneration++;
+            _documentTitle = null;
             Store.Clear();
             Capabilities = capabilities;
             DetectedLocale = locale;

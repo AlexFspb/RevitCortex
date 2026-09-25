@@ -26,6 +26,8 @@ public class SayHelloTool : ICortexTool
             toolCount = "RevitCortex is running",
             revitProcessId = System.Diagnostics.Process.GetCurrentProcess().Id,
             bridgePort = session.BridgePort,
+            buildId = RevitCortex.Core.Hosting.CortexBuild.Id,
+            coreModuleId = RevitCortex.Core.Hosting.CortexBuild.CoreModuleId,
             activeDocumentTitle = document?.IsValidObject == true ? document.Title : null
         });
     }

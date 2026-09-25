@@ -48,6 +48,8 @@ public class SendCodeToRevitTool : ICortexTool
 
         var code = input["code"]?.Value<string>();
         var transactionMode = input["transactionMode"]?.Value<string>() ?? "auto";
+        var modeError = ScriptTransactionMode.Validate(transactionMode);
+        if (modeError != null) return modeError;
         var reusable = input["reusable"]?.Value<bool>() ?? false;
         var scriptName = SanitizeName(input["scriptName"]?.Value<string>() ?? "script");
 

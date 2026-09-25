@@ -37,6 +37,20 @@ public class ConfirmationWindowConstructionTests
                 normalAuto.IsChecked = true;
                 Assert.True(OperationConfirmationWindow.AutoRunEnabled);
                 Assert.False(CriticalConfirmationWindow.AutoApproveEnabled);
+
+                // Regression: checking auto before ShowDialog must never start a timer.
+                criticalAuto.IsChecked = true;
+                var timer = (System.Windows.Threading.DispatcherTimer)typeof(CriticalConfirmationWindow)
+                    .GetField("_timer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(critical)!;
+                Assert.False(timer.IsEnabled);
+                var tick = typeof(CriticalConfirmationWindow).GetMethod("Timer_Tick",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                tick.Invoke(critical, new object?[] { null, EventArgs.Empty });
+                Assert.False(timer.IsEnabled);
+                critical.CleanupConfirmation();
+                tick.Invoke(critical, new object?[] { null, EventArgs.Empty });
+                Assert.False(critical.IsVisible);
+                criticalAuto.IsChecked = false;
             }
             catch (Exception ex) { failure = ex; }
             finally
@@ -48,7 +62,11 @@ public class ConfirmationWindowConstructionTests
                         ((CheckBox)ordinary.FindName("AutoRunCheckBox")).IsChecked = true;
                         ordinary.Close();
                     }
-                    critical?.Close();
+                    if (critical != null)
+                    {
+                        ((CheckBox)critical.FindName("AutoApproveCheckBox")).IsChecked = false;
+                        critical.Close();
+                    }
                 }
                 catch (Exception ex) { failure ??= ex; }
             }

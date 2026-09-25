@@ -212,3 +212,7 @@ Once enabled, Cortex stays connected across family/project closure, including cl
 ### Safe C# results and Revit failures
 
 Script results are validated before Cortex commits model changes. Return plain data rather than Revit objects. Lazy LINQ stays supported within bounded depth, node and response-size limits. Invalid results report a structured error and rollback state. Auto transactions roll back unexpected Revit warnings/errors without waiting for a failure dialog; script-owned transactions must configure the supplied handler. See [compatibility, error examples and manual verification](docs/safe-script-results.md).
+
+### Confirmation crash repair and build identification
+
+See [the September 25 fix](docs/confirmation-crash-fix.md) for timer lifecycle protection, ConfirmationFailed diagnostics, strict auto/none/group validation and per-process request journals. say_hello now includes buildId and coreModuleId so installed DLLs can be identified independently of their inherited assembly version.

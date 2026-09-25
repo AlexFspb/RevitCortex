@@ -429,11 +429,13 @@ public static class ProjectTools
     public static async Task<string> SendCodeToRevit(
         RevitConnectionManager revit,
         [Description("C# code to execute. Globals available: document (Document), uiDocument (UIDocument), app (Application).")] string code,
-        [Description("Transaction mode: auto | manual | readonly. Default: auto")] string? transactionMode = "auto",
-        [Description("YOU (the assistant) set this storage flag; do not ask the user about this flag (this does NOT authorize running the script autonomously — see the tool description). true = REUSABLE (kept permanently) if the script is generic and could run again on other models or sessions (e.g. a utility, a report, a recurring audit). false = TEMP (deleted at Revit close) if the script is specific to this one request, these specific element IDs, or this exact model. Default: false.")] bool? reusable = false,
+        [Description("Transaction mode: auto | none | group. Default: auto. none opens no transaction; it is not read-only enforcement. manual and readonly are rejected.")] string? transactionMode = "auto",
+        [Description("YOU (the assistant) set this storage flag; do not ask the user about this flag (execution still obeys the configured Cortex controls). true = REUSABLE (kept permanently) if the script is generic and could run again on other models or sessions (e.g. a utility, a report, a recurring audit). false = TEMP (deleted at Revit close) if the script is specific to this one request, these specific element IDs, or this exact model. Default: false.")] bool? reusable = false,
         [Description("Short human-readable name for the script file (no spaces, max 40 chars). Example: 'floor-thickness-audit'")] string? scriptName = null,
         CancellationToken ct = default)
     {
+        var modeError = RevitCortex.Core.Results.ScriptTransactionMode.Validate(transactionMode);
+        if (modeError != null) return Newtonsoft.Json.JsonConvert.SerializeObject(modeError);
         var p = new JObject { ["code"] = code };
         if (transactionMode != null) p["transactionMode"] = transactionMode;
         if (reusable != null) p["reusable"] = reusable;

@@ -167,6 +167,9 @@ Some large documents under `docs/` and `WORKFLOWS.md` originated upstream and ma
 
 ## Script result and failure contract
 
+Only auto/none/group transaction modes are supported; reject manual/readonly rather than silently opening an auto transaction. none is not read-only enforcement. Confirmation UI failures must return ConfirmationFailed with local full-exception diagnostics, never a fabricated user refusal. Preserve lifecycle cleanup even when ShowDialog fails. See [confirmation crash fix](docs/confirmation-crash-fix.md). Update CortexBuild.Id for each new distributed build.
+
+
 Return plain data, never raw Revit API objects or arbitrary POCOs. Anonymous objects, string-keyed dictionaries, arrays and bounded lazy LINQ are supported. See [safe script results](docs/safe-script-results.md). ResultSerializationFailed reports the rejected path and actual rollback state; never blindly retry.
 
 For every mutation script, configure transaction-level IFailuresPreprocessor and SetClearAfterRollback(true) before changes. Auto mode installs ScriptFailureHandling.Configure automatically; script-owned transactions in group/none must call it after Start. Unexpected warnings/errors roll back the affected transaction; never force-accept unresolved errors or delete model elements as recovery. Capture descriptions, severity and numeric element IDs, check commit status, use a bounded dry-run before bulk replacement and retain the diagnostic report. Cancelled alone is ambiguous: verify model/context before continuing. This does not intercept native crashes or every modal window and does not bypass Cortex confirmation/security controls or enable persistent auto-approval.
