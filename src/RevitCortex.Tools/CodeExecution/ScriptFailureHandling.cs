@@ -9,7 +9,7 @@ using RevitCortex.Core.Results;
 
 namespace RevitCortex.Tools.CodeExecution;
 
-/// <summary>Strict, transaction-scoped handling for autonomous scripts. No UI or automatic repair.</summary>
+/// <summary>Transaction-scoped warning capture and error rollback for autonomous scripts. No UI or automatic repair.</summary>
 public static class ScriptFailureHandling
 {
     /// <summary>Call after Start and before model changes on EVERY script-owned transaction.</summary>
@@ -26,34 +26,27 @@ public static class ScriptFailureHandling
     public sealed class FailureCapture : IFailuresPreprocessor
     {
         // Only primitive data survives beyond PreprocessFailures, never FailureMessageAccessor or ElementId.
-        private readonly List<Dictionary<string, object>> _failures = new();
-        public IReadOnlyList<Dictionary<string, object>> Failures => _failures;
-        public int OmittedFailures { get; private set; }
+        private readonly ScriptFailureReport _report = new();
+        public IReadOnlyList<Dictionary<string, object>> Failures => _report.Failures;
+        public int OmittedFailures => _report.OmittedFailures;
         public string? DiagnosticReportPath { get; private set; }
+
+        public void AppendWarnings(Newtonsoft.Json.Linq.JObject response) =>
+            _report.AppendWarnings(response, DiagnosticReportPath);
 
         public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
         {
-            var unexpected = false;
             foreach (var failure in accessor.GetFailureMessages())
             {
                 var severity = failure.GetSeverity();
                 if (severity == FailureSeverity.None) continue;
-                unexpected = true;
-                if (_failures.Count >= 100) { OmittedFailures++; continue; }
-                var description = failure.GetDescriptionText() ?? "";
-                var ids = failure.GetFailingElementIds();
-                _failures.Add(new Dictionary<string, object>
-                {
-                    ["description"] = description.Length > 2048 ? description.Substring(0, 2048) : description,
-                    ["descriptionTruncated"] = description.Length > 2048,
-                    ["severity"] = severity.ToString(),
-                    ["elementIds"] = ids.Take(200).Select(id => id.Value).ToArray(),
-                    ["elementIdsTruncated"] = ids.Count > 200
-                });
+                bool warning = _report.Record(severity.ToString(), failure.GetDescriptionText() ?? "",
+                    failure.GetFailingElementIds().Select(id => id.Value));
+                // Always process severity, even when diagnostic budgets have been exhausted.
+                if (warning) accessor.DeleteWarning(failure);
             }
-            if (!unexpected) return FailureProcessingResult.Continue;
-            SaveReport();
-            return FailureProcessingResult.ProceedWithRollBack;
+            if (_report.WarningCount > 0 || _report.HasErrors) SaveReport();
+            return _report.HasErrors ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;
         }
 
         public CortexResult<object> ToFailure(TransactionStatus status)
@@ -66,7 +59,8 @@ public static class ScriptFailureHandling
                 context: new Dictionary<string, object>
                 {
                     ["transactionState"] = rolledBack ? "rolled_back" : status.ToString(),
-                    ["failures"] = _failures, ["omittedFailures"] = OmittedFailures,
+                    ["failures"] = Failures, ["omittedFailures"] = OmittedFailures,
+                    ["warningCount"] = _report.WarningCount,
                     ["diagnosticReportPath"] = DiagnosticReportPath ?? "(report could not be saved)",
                     ["externalEffectsMayRemain"] = true
                 });
@@ -82,7 +76,8 @@ public static class ScriptFailureHandling
                 File.WriteAllText(path, JsonConvert.SerializeObject(new
                 {
                     utc = DateTime.UtcNow, revitProcessId = Environment.ProcessId,
-                    action = "rollback_requested", failures = _failures, omittedFailures = OmittedFailures
+                    action = _report.HasErrors ? "rollback_requested" : "warnings_removed",
+                    failures = Failures, omittedFailures = OmittedFailures, warningCount = _report.WarningCount
                 }, Formatting.Indented));
                 DiagnosticReportPath = path;
             }

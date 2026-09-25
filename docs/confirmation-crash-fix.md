@@ -1,6 +1,6 @@
 # Confirmation crash fix — 2026-09-25
 
-Build ID: `2026.09.25-confirmation-fix.1`. This revision includes the earlier bounded script-result projector and strict transaction failure handler.
+Build ID: `2026.09.25-warning-report.2`. This revision includes the earlier bounded script-result projector and transaction warning capture and error rollback handler.
 
 ## Confirmed failure and repair
 

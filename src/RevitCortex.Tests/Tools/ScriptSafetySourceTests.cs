@@ -24,7 +24,7 @@ public class ScriptSafetySourceTests
     }
 
     [Fact]
-    public void StrictHandlerIsInstalledBeforeScriptAndNeverResolvesByDeleting()
+    public void WarningHandlerIsInstalledBeforeScriptAndNeverDeletesModelElements()
     {
         var source = Source("CodeExecution", "RoslynExecutor.cs");
         var start = source.IndexOf("tx.Start();", StringComparison.Ordinal);
@@ -39,7 +39,11 @@ public class ScriptSafetySourceTests
         Assert.Contains("GetDescriptionText()", helper);
         Assert.Contains("GetFailingElementIds()", helper);
         Assert.Contains("id.Value", helper);
-        Assert.DoesNotContain("DeleteWarning(", helper);
+        Assert.Contains("if (warning) accessor.DeleteWarning(failure)", helper);
+        Assert.Contains("_report.HasErrors ? FailureProcessingResult.ProceedWithRollBack", helper);
+        Assert.Contains("txFailures.AppendWarnings(prepared)", source);
+        Assert.Contains("value is ElementId id ? id.Value : null", source);
+        Assert.Contains("ScriptFailureReport.ReserveBytes", source);
         Assert.DoesNotContain("ResolveFailure(", helper);
         Assert.DoesNotContain("DeleteElements(", helper);
     }

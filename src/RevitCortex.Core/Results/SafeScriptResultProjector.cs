@@ -53,12 +53,15 @@ public static class SafeScriptResultProjector
     public const int MaxResponseBytes = 1024 * 1024;
     private const int TransportReserveBytes = 4096;
 
-    public static JObject Project(object? value, string? scriptPath = null, string? scriptLifetime = null)
+    public static JObject Project(object? value, string? scriptPath = null, string? scriptLifetime = null,
+        Func<object, long?>? elementIdValue = null, int diagnosticReserveBytes = 0)
     {
-        using var output = new BoundedWriter(MaxResponseBytes - TransportReserveBytes);
+        if (diagnosticReserveBytes < 0 || diagnosticReserveBytes >= MaxResponseBytes - TransportReserveBytes)
+            throw new ArgumentOutOfRangeException(nameof(diagnosticReserveBytes));
+        using var output = new BoundedWriter(MaxResponseBytes - TransportReserveBytes - diagnosticReserveBytes);
         using (var writer = new JsonTextWriter(output) { CloseOutput = false, AutoCompleteOnClose = false, StringEscapeHandling = StringEscapeHandling.EscapeNonAscii })
         {
-            var projection = new Projection(writer);
+            var projection = new Projection(writer, elementIdValue);
             writer.WriteStartObject();
             writer.WritePropertyName("result");
             projection.Write(value, 1, "result");
@@ -83,7 +86,9 @@ public static class SafeScriptResultProjector
         private readonly JsonTextWriter _writer;
         private readonly HashSet<object> _ancestors = new(new IdentityComparer());
         private int _nodes;
-        public Projection(JsonTextWriter writer) => _writer = writer;
+        private readonly Func<object, long?>? _elementIdValue;
+        public Projection(JsonTextWriter writer, Func<object, long?>? elementIdValue)
+        { _writer = writer; _elementIdValue = elementIdValue; }
 
         public void Write(object? value, int depth, string path)
         {
@@ -107,7 +112,13 @@ public static class SafeScriptResultProjector
             if (value is DateTimeOffset offset) { _writer.WriteValue(offset.ToString("O", CultureInfo.InvariantCulture)); return; }
 
             // Must precede reflection, dictionary handling and GetEnumerator.
-            if (IsRevitType(type)) throw new ScriptResultException("RevitApiObject", path, type);
+            if (IsRevitType(type))
+            {
+                // The Tools layer supplies a narrowly typed ElementId.Value adapter.
+                var id = _elementIdValue?.Invoke(value);
+                if (id.HasValue) { _writer.WriteValue(id.Value); return; }
+                throw new ScriptResultException("RevitApiObject", path, type);
+            }
             if (!_ancestors.Add(value)) throw new ScriptResultException("ReferenceCycle", path, type);
             try
             {

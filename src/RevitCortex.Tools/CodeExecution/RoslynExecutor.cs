@@ -72,7 +72,9 @@ public static class RoslynExecutor
             JObject prepared;
             JObject Prepare() => SafeScriptResultProjector.Project(
                 method.Invoke(null, new object[] { globals.document, globals.uiDocument, globals.app }),
-                scriptPath, scriptLifetime);
+                scriptPath, scriptLifetime,
+                elementIdValue: value => value is ElementId id ? id.Value : null,
+                diagnosticReserveBytes: transactionMode == "none" || transactionMode == "group" ? 0 : ScriptFailureReport.ReserveBytes);
 
             if (transactionMode == "none")
             {
@@ -120,6 +122,7 @@ public static class RoslynExecutor
                     var status = tx.GetStatus();
                     if (status == TransactionStatus.Started) status = tx.Commit();
                     if (status != TransactionStatus.Committed) return txFailures.ToFailure(status);
+                    txFailures.AppendWarnings(prepared);
                 }
                 catch (ScriptResultException ex)
                 {

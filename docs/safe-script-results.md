@@ -9,11 +9,12 @@ The old executor serialized results after committing changes and silently suppre
 ## Supported returns
 
 - Null, strings, booleans, finite numbers, characters, enums, Guid, DateTime and DateTimeOffset.
+- Revit ElementId, converted to its signed 64-bit Value by the Tools adapter.
 - C# anonymous objects: backing fields are read directly; arbitrary property getters are never called.
 - Dictionaries with string keys, arrays, lists and lazy IEnumerable / LINQ projections.
 - JObject, JArray and supported JValue data, traversed with the same budgets. JRaw and executable/custom JSON conversions are rejected.
 
-Raw Autodesk.Revit objects, including Element, ElementId, XYZ, Transform, BoundingBoxXYZ and FilteredElementCollector, are rejected before properties or enumerators are accessed. User-defined POCOs/records are also rejected: project their values into anonymous data. No fallback ToString, custom converter or serialization callback runs.
+Raw Autodesk.Revit objects, including Element, XYZ, Transform, BoundingBoxXYZ and FilteredElementCollector, are rejected before properties or enumerators are accessed. User-defined POCOs/records are also rejected: project their values into anonymous data. No fallback ToString, custom converter or serialization callback runs.
 
 ```csharp
 // Incorrect: return element.get_BoundingBox(null);
@@ -25,9 +26,9 @@ return new {
 };
 ```
 
-`return elements.Select(e => new { id = e.Id.Value, name = e.Name });` remains supported. Enumeration occurs once on the calling Revit thread, before commit, and is disposed on success or failure.
+`return elements.Select(e => new { id = e.Id, name = e.Name });` and explicit `e.Id.Value` are both supported. Enumeration occurs once on the calling Revit thread, before commit, and is disposed on success or failure.
 
-Limits: depth 16 (result starts at depth 1), 100,000 visited values, 256 KiB UTF-8 per string/key, 1 MiB response budget with 4 KiB reserved for the transport envelope. The size check includes escaping and script metadata; Unicode escaping makes the check conservative. Requests reaching a limit fail rather than silently truncate. Paginate large exports. Enumeration may stop conservatively at the node boundary without probing one more item.
+Limits: depth 16 (result starts at depth 1), 100,000 visited values, 256 KiB UTF-8 per string/key, 1 MiB response budget with 4 KiB reserved for the transport envelope and an additional 64 KiB reserved for auto-mode failure diagnostics. The size check includes escaping and script metadata; Unicode escaping makes the check conservative. Requests reaching a limit fail rather than silently truncate. Paginate large exports. Enumeration may stop conservatively at the node boundary without probing one more item.
 
 ## Error and retry contract
 
@@ -54,9 +55,9 @@ Do not blindly retry. Verify document/context and external effects, correct the 
 
 ## Revit failure dialogs
 
-`auto` installs `ScriptFailureHandling.Configure(tx)` after Start and before running user code. This transaction-level IFailuresPreprocessor rolls back unexpected warnings AND errors with SetClearAfterRollback(true). It does not force acceptance, resolve errors by deleting elements, or click dialogs.
+`auto` installs `ScriptFailureHandling.Configure(tx)` after Start and before running user code. This transaction-level IFailuresPreprocessor captures warnings before DeleteWarning and rolls back errors with SetClearAfterRollback(true). It does not force acceptance, resolve errors by deleting elements, or click dialogs.
 
-On failed commit Cortex returns TransactionFailed, transaction status, bounded failure descriptions, severity, numeric element IDs and a diagnostic report path. Reports are local JSON under the profile's `support-reports/script-failures` directory, with PID and unique filenames. They record **rollback_requested**, not a fabricated confirmation of rollback. A failed report write is explicit in the response. Captures are bounded to 100 failure records, 2048 characters per description and 200 IDs per failure, with truncation indicators.
+On failed commit Cortex returns TransactionFailed, transaction status, bounded failure descriptions, severity, numeric element IDs and a diagnostic report path. Reports are local JSON under the profile's `support-reports/script-failures` directory, with PID and unique filenames. Error reports record **rollback_requested**, not a fabricated confirmation of rollback; warning-only reports record **warnings_removed**. A failed report write is explicit in the response. Captures are bounded to 100 failure records, 2048 characters per description and 200 IDs per failure, with truncation indicators.
 
 For **every script-owned transaction** in `group` or `none`, call the same helper after Start and before mutations:
 
@@ -87,7 +88,7 @@ Automatic Release 8080 → 8888; Dev 8081 → 8889; no start/stop OK dialogs; or
 
 ## Verification
 
-Unit tests exercise plain and anonymous data, 3000-row LINQ export, single-thread/single-pass enumeration and disposal, Revit/POCO rejection without getters/ToString, shared references versus cycles, depth/node/string/escaped-output/metadata limits, invalid numbers/JSON/dictionary keys, iterator exceptions and rollback messaging. Source guards cover pre-commit preparation and strict failure handling; they do not substitute for Revit integration tests.
+Unit tests exercise plain and anonymous data, 3000-row LINQ export, single-thread/single-pass enumeration and disposal, Revit/POCO rejection without getters/ToString, shared references versus cycles, depth/node/string/escaped-output/metadata limits, invalid numbers/JSON/dictionary keys, iterator exceptions and rollback messaging. Source guards cover pre-commit preparation and warning capture and error rollback; they do not substitute for Revit integration tests.
 
 Manual checks on a disposable Revit 2026 model before installing broadly:
 
@@ -95,5 +96,15 @@ Manual checks on a disposable Revit 2026 model before installing broadly:
 2. Make a reversible edit and return a raw Revit object: receive ResultSerializationFailed, keep Revit alive and confirm auto/group rollback.
 3. Repeat with an oversized result; confirm metadata/size failure also precedes commit.
 4. In none, commit a script-owned transaction then return invalid data: verify the response does not claim rollback.
-5. Trigger a bounded known rotation failure and an unexpected warning in auto and in a configured script-owned transaction: verify no failure dialog, no changes, TransactionStatus and readable diagnostic JSON with description/severity/IDs.
+5. Trigger a bounded known rotation failure and an unexpected warning in auto and in a configured script-owned transaction: verify errors roll back without a failure dialog, while warning-only transactions commit and return warnings with description/severity/IDs. Verify TransactionStatus and diagnostic JSON.
 6. Confirm both running instances and agreed confirmation controls continue working. No crash reproduction or UI automation is part of unit testing.
+
+## Warning-compatible auto mode and ElementId (2026-09-25)
+
+Warnings no longer roll back an otherwise valid auto transaction. They are captured before removal from Revit's failure dialog; only errors (including unknown non-warning severities) request rollback. A successful auto response includes `warnings` (description, severity and numeric elementIds), `warningCount`, `omittedFailures` and `diagnosticReportPath` whenever warnings were observed. Error responses retain both warning/error records in `error.context.failures`. Removing a warning does not repair the underlying model condition. Agents must inspect the returned warnings.
+
+Capture remains bounded to 100 records, 2048 characters and 200 IDs per record, plus a 56 KiB escaped-JSON record budget. Truncation flags and omitted counts are explicit in responses and local reports. Auto reserves 64 KiB before commit for diagnostics, in addition to the existing 4 KiB transport reserve, so warnings cannot make a near-limit result fail serialization after commit. Large data exports can therefore hit the size limit slightly earlier. Reports record `warnings_removed` or `rollback_requested`; neither is proof of final commit/rollback.
+
+In group/none the helper uses the same warning/error policy, but the script owns its transactions and must return `capture.Failures`, `capture.OmittedFailures`, status and report path itself. Cortex does not automatically gather arbitrary script-owned captures.
+
+`ElementId` values, including nested anonymous fields, arrays, dictionaries and LINQ, are converted to signed 64-bit `Value` on the Revit thread before commit. Negative/sentinel IDs remain numbers; this does not validate that an element exists. The Core projector remains Revit-independent: only the Tools adapter recognizes ElementId. Other Revit objects are still rejected before property traversal.
