@@ -1,12 +1,12 @@
 # Confirmation crash fix — 2026-09-25
 
-Build ID: `2026.09.25-warning-report.2`. This revision includes the earlier bounded script-result projector and transaction warning capture and error rollback handler.
+Build ID: `2026.09.26-confirmation-timeout.3`. This revision includes the earlier bounded script-result projector and transaction warning capture and error rollback handler.
 
 ## Confirmed failure and repair
 
 Four offline Revit dumps showed an InvalidOperationException from CriticalConfirmationWindow.Timer_Tick assigning DialogResult outside an active modal presentation. The checkbox could start a timer during construction, and failed ShowDialog paths did not guarantee cleanup. The exact initial ShowDialog exception was not preserved by the old Trace-only logger. Dispatcher suspension remains a hypothesis, not a proven cause.
 
-Both confirmation windows now use a one-shot lifecycle. Construction and pre-show checkbox changes cannot activate approval. The timer starts only after Loaded within ShowConfirmation; finally always ends the lifecycle and stops/unsubscribes it. Late callbacks cannot approve. Completing the dialog is guarded, and an expected completion failure is captured rather than escaping the DispatcherTimer callback. Setting DialogResult closes the modal dialog; the redundant Close is removed.
+Both confirmation windows now use a one-shot lifecycle. Construction and pre-show checkbox changes cannot activate approval. The approval timer starts only after ContentRendered within ShowConfirmation; finally always ends the lifecycle and stops/unsubscribes it. Late callbacks cannot approve. Completing the dialog is guarded, and an expected completion failure is captured rather than escaping the DispatcherTimer callback. Setting DialogResult closes the modal dialog; the redundant Close is removed.
 
 A failed creation/show/completion returns `ConfirmationFailed`, not a fabricated user cancellation. Full exceptions, including inner exceptions and stacks, are saved locally in `support-reports/confirmation/<UTC>-<PID>-<unique>.txt`. Failure to write a diagnostic never grants approval. Explicit No/X remains cancellation. Neither error permits a blind retry.
 
@@ -63,3 +63,18 @@ API sources: [ElementLevelFilter](https://help.autodesk.com/cloudhelp/2026/ENU/R
 Regression tests use fake modal delegates and unshown WPF construction only. They cover failed presentation, late ticks, cancellation, duplicate completion, setter/close failures, no constructor timer, independent preferences, unsupported transaction modes without bridge I/O, durable start records, paired identity, technical-error propagation and timeout semantics. No window is shown and no live Revit script is run by these checks.
 
 After installing with all Revit processes closed, verify on a disposable model: normal/critical Yes/No/X and 3-second countdowns, repeated confirmations, technical failure reporting where reproducible, both ports, say_hello build identification, safe-result rollback and local logs. Do not reproduce the known native parameter crash on a working model. A real Revit UI lifecycle test still requires explicit permission for UI access or manual user testing.
+
+## Invisible modal wait / timeout repair — 2026-09-26
+
+A local live-process stack showed the Revit UI thread waiting in CriticalConfirmationWindow.ShowConfirmation / Window.ShowDialog before script persistence or Roslyn execution. The main Revit window was disabled and no confirmation was exposed by the window inventory. The user reported auto-run had been checked. The original reason the window disappeared (including whether it was off-screen) remains unproven.
+
+- The ExternalEvent captures UIApplication.MainWindowHandle on the UI thread as the owner. Process.MainWindowHandle guessing is removed from confirmation constructors. Native monitor work-area pixels determine centering; WPF maximum dimensions use the corresponding device transform. The dialogs use a normal border and ShowInTaskbar=true to improve discoverability.
+- Both approval timers require ContentRendered and IsVisible, preserving ordinary default-on and critical separate opt-in three-second preferences. An invisible dialog never authorizes via the countdown.
+- A separate Dispatcher watchdog starts before ShowDialog, independently of Loaded. Failure to load/render/be visible after five seconds requests Close and returns ConfirmationFailed. A confirmation also has a 120-second maximum wait. Request timeout cancels via a high-priority Dispatcher callback. Cleanup only cancels; it never presses Yes or executes a script.
+- The per-request lifetime atomically arbitrates expiration versus completion of confirmation. If expiration wins, even a late true callback cannot authorize execution. If approval wins first, a later timeout conservatively reports that execution may still complete.
+- The event slot stays occupied until the accepted ExternalEvent actually drains; a timed-out queued event is skipped when it eventually arrives. Each caller owns its completion/result so a following request cannot steal or overwrite the previous response. Additional requests return busy with the active phase instead of replacing a pending/running request.
+- Timeout context identifies queued / awaiting_confirmation / executing. Expired confirmation differs from user No and from a running script. Request journals preserve this distinction. Local lifecycle-PID.jsonl diagnostics record show/source/load/render/close, owner/handle, position, build/MVID and cancellation exceptions.
+
+This is cooperative UI cancellation, not forced thread interruption: it cannot dismiss a window while the Revit Dispatcher is blocked in native code, recover a native crash, or safely abort an already-running arbitrary script. Closing an expired confirmation does not roll back earlier side effects of a multi-step tool. No global auto-approval, popup-clicking or process termination is introduced. The already-loaded old DLL cannot be replaced in an open Revit session.
+
+Manual smoke checks after installation: two Revit instances on different monitors, mixed DPI and a removed monitor; both three-second flows and manual No/X; manual confirmation timeout; a queued request expiring while Revit is busy; simultaneous approval/expiry and repeated subsequent reads. Verify window close restores the owner and expired scripts never begin. Core tests cover the race/lifetime/position arithmetic; actual WPF/Revit modal cleanup still requires these checks.

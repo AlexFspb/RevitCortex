@@ -167,7 +167,7 @@ Some large documents under `docs/` and `WORKFLOWS.md` originated upstream and ma
 
 ## Script result and failure contract
 
-Only auto/none/group transaction modes are supported; reject manual/readonly rather than silently opening an auto transaction. none is not read-only enforcement. Confirmation UI failures must return ConfirmationFailed with local full-exception diagnostics, never a fabricated user refusal. Preserve lifecycle cleanup even when ShowDialog fails. See [confirmation crash fix](docs/confirmation-crash-fix.md). Update CortexBuild.Id for each new distributed build.
+Only auto/none/group transaction modes are supported; reject manual/readonly rather than silently opening an auto transaction. none is not read-only enforcement. Confirmation UI failures must return ConfirmationFailed with local full-exception diagnostics, never a fabricated user refusal. Preserve lifecycle cleanup even when ShowDialog fails. Confirmation timers require a rendered visible window; bind its owner to UIApplication.MainWindowHandle. Expire pending confirmation on the UI Dispatcher and forbid approval after expiration. Never release a timed-out ExternalEvent slot before it drains; each caller must retain its own completion/result. See [confirmation crash fix](docs/confirmation-crash-fix.md). Update CortexBuild.Id for each new distributed build.
 
 
 Return plain data, never raw Revit API objects or arbitrary POCOs. Anonymous objects, string-keyed dictionaries, arrays and bounded lazy LINQ are supported. See [safe script results](docs/safe-script-results.md). ResultSerializationFailed reports the rejected path and actual rollback state; never blindly retry.

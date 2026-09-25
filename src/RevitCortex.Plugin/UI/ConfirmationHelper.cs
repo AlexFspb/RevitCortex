@@ -14,8 +14,9 @@ public static class ConfirmationHelper
         try
         {
             dialog = new OperationConfirmationWindow(action, elementCount, description);
-            return dialog.ShowConfirmation();
+            return ConfirmationPresentation.Show(dialog, dialog.ShowConfirmation);
         }
+        catch (ConfirmationExpiredException) { throw; }
         catch (Exception ex) { throw ReportFailure(ex); }
         finally { dialog?.CleanupConfirmation(); }
     }
@@ -27,8 +28,9 @@ public static class ConfirmationHelper
         try
         {
             dialog = new CriticalConfirmationWindow(action, elementCount, description);
-            return dialog.ShowConfirmation();
+            return ConfirmationPresentation.Show(dialog, dialog.ShowConfirmation);
         }
+        catch (ConfirmationExpiredException) { throw; }
         catch (Exception ex) { throw ReportFailure(ex); }
         finally { dialog?.CleanupConfirmation(); }
     }

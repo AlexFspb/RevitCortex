@@ -6,8 +6,8 @@
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
-        ShowInTaskbar="False"
-        WindowStyle="ToolWindow"
+        ShowInTaskbar="True"
+        WindowStyle="SingleBorderWindow"
         Background="White"
         Loaded="Window_Loaded">
 

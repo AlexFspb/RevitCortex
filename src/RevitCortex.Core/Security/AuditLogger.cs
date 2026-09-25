@@ -89,7 +89,9 @@ public class AuditLogger
             error_code = response?.Error?.Code.ToString(),
             error_message = response?.Error == null ? null : Truncate(response.Error.Message, 4096), duration_ms = durationMs,
             // Timeout is a response, not proof that the Revit operation has stopped.
-            executionMayStillBeRunning = response?.Error?.Code == CortexErrorCode.Timeout
+            requestPhase = response?.Error?.Context != null && response.Error.Context.TryGetValue("requestPhase", out var requestPhase) ? requestPhase : null,
+            executionMayStillBeRunning = response?.Error?.Context != null && response.Error.Context.TryGetValue("executionMayStillBeRunning", out var running)
+                ? running : (object)(response?.Error?.Code == CortexErrorCode.Timeout)
         }, toolName, RequestLogPath);
     }
 

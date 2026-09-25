@@ -19,6 +19,7 @@ public partial class OperationConfirmationWindow : Window
     private readonly ConfirmationDialogLifecycle _lifecycle = new();
     private bool _initialized;
     private bool _closed;
+    private bool _rendered;
 
     public OperationConfirmationWindow(string action, int elementCount, string? description)
     {
@@ -35,13 +36,18 @@ public partial class OperationConfirmationWindow : Window
         AutoRunCheckBox.IsChecked = AutoRunEnabled;
         _initialized = true;
         UpdateButton();
-        var owner = Process.GetCurrentProcess().MainWindowHandle;
-        if (owner != IntPtr.Zero) new WindowInteropHelper(this).Owner = owner;
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        if (!_lifecycle.MarkLoaded()) return;
+        _lifecycle.MarkLoaded();
+    }
+
+    protected override void OnContentRendered(EventArgs e)
+    {
+        base.OnContentRendered(e);
+        if (_rendered || !_lifecycle.IsActive) return;
+        _rendered = true;
         _approval.Start();
         if (_approval.AutoRunEnabled) _timer.Start();
     }
@@ -53,12 +59,12 @@ public partial class OperationConfirmationWindow : Window
         AutoRunEnabled = AutoRunCheckBox.IsChecked == true;
         _approval.SetAutoRun(AutoRunEnabled);
         UpdateButton();
-        if (_lifecycle.IsActive && AutoRunEnabled) _timer.Start();
+        if (_lifecycle.IsActive && _rendered && IsVisible && AutoRunEnabled) _timer.Start();
     }
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
-        if (!_lifecycle.IsActive) { _timer.Stop(); return; }
+        if (!_lifecycle.IsActive || !_rendered || !IsVisible) { _timer.Stop(); return; }
         _approval.Tick();
         UpdateButton();
         if (_approval.Decision == true) FinishApproval();

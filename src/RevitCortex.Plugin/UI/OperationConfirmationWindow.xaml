@@ -4,7 +4,7 @@
         Title="RevitCortex 2026 — Подтверждение операции"
         Width="460" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
-        ShowInTaskbar="False" WindowStyle="ToolWindow" Background="White"
+        ShowInTaskbar="True" WindowStyle="SingleBorderWindow" Background="White"
         Loaded="Window_Loaded" PreviewKeyDown="Window_PreviewKeyDown">
     <Border BorderBrush="#FB8C00" BorderThickness="0,3,0,0" Padding="18">
         <StackPanel>

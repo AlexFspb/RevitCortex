@@ -19,6 +19,7 @@ public partial class CriticalConfirmationWindow : Window
     private const int AutoApproveSeconds = 3;
     private readonly DispatcherTimer _timer;
     private readonly ConfirmationDialogLifecycle _lifecycle = new();
+    private bool _rendered;
     private int _secondsRemaining = AutoApproveSeconds;
 
     /// <summary>
@@ -45,22 +46,20 @@ public partial class CriticalConfirmationWindow : Window
         AutoApproveCheckBox.IsChecked = AutoApproveEnabled;
         UpdateYesButtonText();
 
-        try
-        {
-            var owner = Process.GetCurrentProcess().MainWindowHandle;
-            if (owner != IntPtr.Zero)
-                new WindowInteropHelper(this).Owner = owner;
-        }
-        catch
-        {
-            // Owner attachment is cosmetic only; the dialog can still function without it.
-        }
+
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        if (_lifecycle.MarkLoaded() && AutoApproveCheckBox.IsChecked == true)
-            StartCountdown();
+        _lifecycle.MarkLoaded();
+    }
+
+    protected override void OnContentRendered(EventArgs e)
+    {
+        base.OnContentRendered(e);
+        if (_rendered) return;
+        _rendered = true;
+        if (_lifecycle.IsActive && AutoApproveCheckBox.IsChecked == true) StartCountdown();
     }
 
     private void AutoApprove_Checked(object sender, RoutedEventArgs e)
@@ -79,7 +78,7 @@ public partial class CriticalConfirmationWindow : Window
     {
         _secondsRemaining = AutoApproveSeconds;
         UpdateYesButtonText();
-        if (_lifecycle.IsActive && !_timer.IsEnabled)
+        if (_lifecycle.IsActive && _rendered && IsVisible && !_timer.IsEnabled)
             _timer.Start();
     }
 
@@ -93,7 +92,7 @@ public partial class CriticalConfirmationWindow : Window
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
-        if (!_lifecycle.IsActive) { _timer.Stop(); return; }
+        if (!_lifecycle.IsActive || !_rendered || !IsVisible) { _timer.Stop(); return; }
         if (AutoApproveCheckBox.IsChecked != true)
         {
             StopCountdown(reset: true);

@@ -182,6 +182,15 @@ public class CortexSession
         string? description = null,
         bool critical = false)
     {
+        var request = ToolRequestLifetime.Current;
+        request?.BeginConfirmation();
+        var approved = RequestConfirmationCore(action, elementCount, description, critical);
+        request?.FinishConfirmation();
+        return approved;
+    }
+
+    private bool RequestConfirmationCore(string action, int elementCount, string? description, bool critical)
+    {
         if (elementCount <= 0) return true;
 
         if (!critical && AutoMode)

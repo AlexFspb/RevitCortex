@@ -216,3 +216,5 @@ Script results are validated before Cortex commits model changes. Return plain d
 ### Confirmation crash repair and build identification
 
 See [the September 25 fix](docs/confirmation-crash-fix.md) for timer lifecycle protection, ConfirmationFailed diagnostics, strict auto/none/group validation and per-process request journals. say_hello now includes buildId and coreModuleId so installed DLLs can be identified independently of their inherited assembly version.
+
+Confirmation windows use the active Revit process main window and monitor work area. An unrendered/invisible confirmation is cancelled after five seconds; pending confirmations expire with their request (at most 120 seconds), without authorizing a late script. Timeouts distinguish waiting for confirmation from executing code. See [confirmation lifecycle and remaining manual checks](docs/confirmation-crash-fix.md).
