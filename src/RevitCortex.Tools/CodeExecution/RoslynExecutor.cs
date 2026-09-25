@@ -5,10 +5,8 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
 using Autodesk.Revit.DB;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using RevitCortex.Core.Results;
-using RevitCortex.Tools.Utilities;
 
 namespace RevitCortex.Tools.CodeExecution;
 
@@ -31,8 +29,12 @@ public static class RoslynExecutor
     public static CortexResult<object> Execute(
         string code,
         ScriptGlobals globals,
-        string transactionMode = "auto")
+        string transactionMode = "auto",
+        string? scriptPath = null,
+        string? scriptLifetime = null)
     {
+        var modeError = ScriptTransactionMode.Validate(transactionMode);
+        if (modeError != null) return modeError;
         try
         {
             var wrappedCode = WrapCode(code);
@@ -67,11 +69,16 @@ public static class RoslynExecutor
             var type = assembly.GetType("RevitCortex.DynamicScript.ScriptRunner")!;
             var method = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!;
 
-            object? result;
+            JObject prepared;
+            JObject Prepare() => SafeScriptResultProjector.Project(
+                method.Invoke(null, new object[] { globals.document, globals.uiDocument, globals.app }),
+                scriptPath, scriptLifetime,
+                elementIdValue: value => value is ElementId id ? id.Value : null,
+                diagnosticReserveBytes: transactionMode == "none" || transactionMode == "group" ? 0 : ScriptFailureReport.ReserveBytes);
 
             if (transactionMode == "none")
             {
-                result = method.Invoke(null, new object[] { globals.document, globals.uiDocument, globals.app });
+                prepared = Prepare();
             }
             else if (transactionMode == "group")
             {
@@ -79,15 +86,23 @@ public static class RoslynExecutor
                 txGroup.Start();
                 try
                 {
-                    result = method.Invoke(null, new object[] { globals.document, globals.uiDocument, globals.app });
-                    if (txGroup.GetStatus() == TransactionStatus.Started
-                        && txGroup.Assimilate() != TransactionStatus.Committed)
+                    prepared = Prepare();
+                    var groupStatus = txGroup.GetStatus();
+                    if (groupStatus == TransactionStatus.Started) groupStatus = txGroup.Assimilate();
+                    if (groupStatus != TransactionStatus.Committed)
                     {
                         return CortexResult<object>.Fail(
                             CortexErrorCode.TransactionFailed,
-                            "Revit rolled back the script transaction group on commit.",
-                            suggestion: "The script triggered a Revit error during commit. Fix the reported model errors and retry.");
+                            groupStatus == TransactionStatus.RolledBack
+                                ? "Revit rolled back the script transaction group."
+                                : "Revit did not commit the script transaction group; rollback is not confirmed.",
+                            suggestion: "Inspect Revit failures and verify model state before retrying. Do not retry automatically.",
+                            context: new Dictionary<string, object> { ["transactionState"] = groupStatus.ToString() });
                     }
+                }
+                catch (ScriptResultException ex)
+                {
+                    return ex.ToFailure(TryRollback(txGroup.GetStatus, txGroup.RollBack));
                 }
                 catch
                 {
@@ -99,19 +114,19 @@ public static class RoslynExecutor
             else
             {
                 using var tx = new Transaction(globals.document, "RevitCortex: Script");
-                var txFailures = TransactionFailureHandling.SuppressWarnings(tx);
                 tx.Start();
+                var txFailures = ScriptFailureHandling.Configure(tx);
                 try
                 {
-                    result = method.Invoke(null, new object[] { globals.document, globals.uiDocument, globals.app });
-                    if (tx.GetStatus() == TransactionStatus.Started
-                        && tx.Commit() != TransactionStatus.Committed)
-                    {
-                        return CortexResult<object>.Fail(
-                            CortexErrorCode.TransactionFailed,
-                            $"Revit rolled back the script transaction: {TransactionFailureHandling.Describe(txFailures)}",
-                            suggestion: "The script triggered a Revit error during commit. Fix the reported model errors and retry.");
-                    }
+                    prepared = Prepare();
+                    var status = tx.GetStatus();
+                    if (status == TransactionStatus.Started) status = tx.Commit();
+                    if (status != TransactionStatus.Committed) return txFailures.ToFailure(status);
+                    txFailures.AppendWarnings(prepared);
+                }
+                catch (ScriptResultException ex)
+                {
+                    return ex.ToFailure(TryRollback(tx.GetStatus, tx.RollBack));
                 }
                 catch
                 {
@@ -121,7 +136,11 @@ public static class RoslynExecutor
                 }
             }
 
-            return CortexResult<object>.Ok(SerializeResult(result));
+            return CortexResult<object>.Ok(prepared);
+        }
+        catch (ScriptResultException ex)
+        {
+            return ex.ToFailure("not_managed");
         }
         catch (TargetInvocationException ex) when (ex.InnerException != null)
         {
@@ -225,27 +244,14 @@ public static class RoslynExecutor
         return refs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static object SerializeResult(object? result)
+    private static string TryRollback(Func<TransactionStatus> status, Func<TransactionStatus> rollback)
     {
-        if (result == null)
-            return new { result = (object?)null };
-
-        if (result is string || result.GetType().IsPrimitive || result is decimal)
-            return new { result };
-
         try
         {
-            var json = JsonConvert.SerializeObject(result,
-                new JsonSerializerSettings
-                {
-                    ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
-                    Error = (_, args) => args.ErrorContext.Handled = true
-                });
-            return new { result = JToken.Parse(json) };
+            var current = status();
+            if (current == TransactionStatus.Started) current = rollback();
+            return current == TransactionStatus.RolledBack ? "rolled_back" : "not_rolled_back";
         }
-        catch
-        {
-            return new { result = result.ToString() };
-        }
+        catch { return "unknown"; }
     }
 }

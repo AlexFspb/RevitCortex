@@ -12,16 +12,23 @@ public class SayHelloTool : ICortexTool
     public string Category => "Meta";
     public bool RequiresDocument => false;
     public bool IsDynamic => false;
-    public string Description => "Say Hello";
+    public string Description => "Identify the connected Revit process, bridge port and active document.";
     public CortexResult<object> Execute(JObject input, CortexSession session)
     {
         var message = input["message"]?.ToString() ?? "Hello from RevitCortex!";
+        // Runs through ExternalEvent on Revit's UI thread, including without a document.
+        var document = session.Store.Get<Autodesk.Revit.DB.Document>("activeDocument");
 
         return CortexResult<object>.Ok(new
         {
             message,
             locale = session.DetectedLocale,
-            toolCount = "RevitCortex is running"
+            toolCount = "RevitCortex is running",
+            revitProcessId = System.Diagnostics.Process.GetCurrentProcess().Id,
+            bridgePort = session.BridgePort,
+            buildId = RevitCortex.Core.Hosting.CortexBuild.Id,
+            coreModuleId = RevitCortex.Core.Hosting.CortexBuild.CoreModuleId,
+            activeDocumentTitle = document?.IsValidObject == true ? document.Title : null
         });
     }
 }

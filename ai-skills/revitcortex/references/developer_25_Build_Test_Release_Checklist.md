@@ -89,7 +89,7 @@ Automatic upstream updates are disabled in this fork until a dedicated `AlexFspb
 - [ ] Tests pass.
 - [ ] `build-release.ps1` produces the R26 ZIP.
 - [ ] Installer is tested with Revit 2026 closed.
-- [ ] Critical C# confirmation and 10-second auto-run countdown are tested in Revit 2026 if those files changed.
+- [ ] Critical C# confirmation and 3-second auto-run countdown are tested in Revit 2026 if those files changed.
 
 ## Avoid
 

@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using RevitCortex.Core.Hosting;
 
 namespace RevitCortex.Server.Connection;
 
@@ -43,7 +44,7 @@ public sealed class RevitBridge : IDisposable
             throw new InvalidOperationException(
                 $"Cannot connect to Revit on {_host}:{_port}. " +
                 $"Make sure Revit is open and the RevitCortex plugin is loaded (green icon in the ribbon). " +
-                $"If you changed the port, set REVITCORTEX_PORT or update ~/.revitcortex/settings.json. " +
+                $"Set REVITCORTEX_PORT to the port shown in that Revit's Cortex settings. " +
                 $"(SocketError: {ex.SocketErrorCode})", ex);
         }
         catch (OperationCanceledException)
@@ -163,28 +164,10 @@ public sealed class RevitConnectionManager
     }
 
     /// <summary>
-    /// Reads the port from settings or environment, same logic as the TS server.
+    /// Pins this MCP server to its process override, or 8080. Never scans other ports.
     /// </summary>
     public static int ResolvePort()
     {
-        var envPort = Environment.GetEnvironmentVariable("REVITCORTEX_PORT");
-        if (!string.IsNullOrEmpty(envPort) && int.TryParse(envPort, out var ep) && ep > 0 && ep <= 65535)
-            return ep;
-
-        try
-        {
-            var settingsPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".revitcortex", "settings.json");
-            if (File.Exists(settingsPath))
-            {
-                var json = JObject.Parse(File.ReadAllText(settingsPath));
-                var port = json["Port"]?.Value<int>();
-                if (port is > 0 and <= 65535) return port.Value;
-            }
-        }
-        catch { }
-
-        return 8080;
+        return CortexPort.Resolve(Environment.GetEnvironmentVariable(CortexPort.EnvironmentVariable));
     }
 }

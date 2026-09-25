@@ -164,6 +164,15 @@ public class SendSupportReport : IExternalCommand
             (Path.Combine(rcFolder, "settings.json"),             "settings.json",          true),
         };
 
+        // Local-only evidence for the current process, plus recent failed confirmation reports.
+        var requestLog = new RevitCortex.Core.Security.AuditLogger().RequestLogPath;
+        candidates.Add((requestLog, Path.GetFileName(requestLog), true));
+        var confirmationFolder = Path.Combine(reportsDir, "confirmation");
+        if (Directory.Exists(confirmationFolder))
+            foreach (var report in new DirectoryInfo(confirmationFolder).EnumerateFiles("*.txt")
+                .OrderByDescending(f => f.LastWriteTimeUtc).Take(10))
+                candidates.Add((report.FullName, "confirmation/" + report.Name, true));
+
         using (var fs = new FileStream(zipPath, FileMode.Create))
         using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
         {
@@ -289,6 +298,9 @@ public class SendSupportReport : IExternalCommand
         var pluginVersion = System.Reflection.Assembly.GetExecutingAssembly()
             .GetName().Version?.ToString() ?? "unknown";
         w.WriteLine($"plugin_version: {pluginVersion}");
+        w.WriteLine($"build_id: {CortexBuild.Id}");
+        w.WriteLine($"core_module_id: {CortexBuild.CoreModuleId}");
+        w.WriteLine($"revit_pid: {Environment.ProcessId}");
         w.WriteLine("Plugin assembly: " + System.Reflection.Assembly.GetExecutingAssembly().Location);
 
         try
@@ -297,7 +309,9 @@ public class SendSupportReport : IExternalCommand
             w.WriteLine($"Profile:        {env.ProfileName}{(env.IsDev ? " (DEV build)" : "")}");
             w.WriteLine($"Config folder:  {env.RootFolder}");
             w.WriteLine($"Settings file:  {env.SettingsFilePath}");
-            w.WriteLine($"Bridge port:    {env.DefaultPort}");
+            var cortex = RevitCortexApp.Instance;
+            w.WriteLine($"Bridge port:    {(cortex?.Session?.BridgePort?.ToString() ?? "not bound")}");
+            w.WriteLine($"Bridge running: {cortex?.IsServiceRunning == true}");
         }
         catch (Exception ex)
         {

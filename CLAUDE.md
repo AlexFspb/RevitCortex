@@ -32,6 +32,8 @@ The Revit plugin server is off by default; the user starts it with **Cortex Swit
 - For custom parameters, inspect a sample element first; never guess the exact parameter name.
 - Use a new conversation/session when old large tool outputs make the context noisy.
 
+Cortex stays enabled across document/family closure. The active UI document is the MCP target; background families must not replace it. No active document produces a model-command error while TCP remains available. Queued commands are cancelled when their captured context changes; manual Cortex stop is respected.
+
 ## Tool selection
 
 Use the narrowest dedicated tool available.
@@ -48,6 +50,8 @@ Examples:
 - copy properties → `match_element_properties`
 - quick clashes → `clash_detection`
 - visual clash review → `workflow_clash_review`
+
+Default-on ordinary auto-run and both 3-second countdowns are intentional product decisions for autonomous MCP work. Agents must not disable ordinary auto-run, lengthen either countdown, or add a separate chat-approval step for authorized C# work. The separate critical C# confirmation and other execution safeguards remain in place.
 
 ## Destructive writes
 
@@ -87,11 +91,17 @@ Never use modal `Document.EditFamily` flows from the MCP external-event context.
 
 ## Critical confirmation and `Allow auto-run`
 
+Ordinary destructive/bulk requests have their own `OperationConfirmationWindow`:
+one Allow once button, auto-run checked by default, and a fresh 3-second countdown
+per request. X/Escape cancels. Unchecking disables this countdown for the current
+process. The two-minute/unlimited menu and floating Auto mode window are removed.
+This normal-operation preference does not enable critical C# auto-run.
+
 The Revit 2026 fork uses a dedicated critical confirmation window for custom C# execution.
 
 - **Yes** approves immediately.
 - **No** cancels.
-- **Allow auto-run** enables a visible **10-second countdown**.
+- **Allow auto-run** enables a visible **3-second countdown**.
 - At zero, the current script is approved automatically.
 - The user can still click Yes or No while the countdown runs.
 - Auto-run is stored only in process memory and resets when Revit closes.
@@ -154,3 +164,12 @@ Some large documents under `docs/` and `WORKFLOWS.md` originated upstream and ma
 3. this file;
 4. `README.md` and current fork-specific AI references;
 5. upstream historical documentation.
+
+## Script result and failure contract
+
+Only auto/none/group transaction modes are supported; reject manual/readonly rather than silently opening an auto transaction. none is not read-only enforcement. Confirmation UI failures must return ConfirmationFailed with local full-exception diagnostics, never a fabricated user refusal. Preserve lifecycle cleanup even when ShowDialog fails. Confirmation timers require a rendered visible window; bind its owner to UIApplication.MainWindowHandle. Expire pending confirmation on the UI Dispatcher and forbid approval after expiration. Never release a timed-out ExternalEvent slot before it drains; each caller must retain its own completion/result. See [confirmation crash fix](docs/confirmation-crash-fix.md). Update CortexBuild.Id for each new distributed build.
+
+
+Return plain data, never raw Revit API objects or arbitrary POCOs. Anonymous objects, string-keyed dictionaries, arrays and bounded lazy LINQ are supported. See [safe script results](docs/safe-script-results.md). ResultSerializationFailed reports the rejected path and actual rollback state; never blindly retry.
+
+For every mutation script, configure transaction-level IFailuresPreprocessor and SetClearAfterRollback(true) before changes. Auto mode installs ScriptFailureHandling.Configure automatically; script-owned transactions in group/none must call it after Start. Errors roll back the affected transaction; warnings are captured and removed from the Revit failure dialog, then returned to the agent; never force-accept unresolved errors or delete model elements as recovery. Capture descriptions, severity and numeric element IDs, check commit status, use a bounded dry-run before bulk replacement and retain the diagnostic report. Cancelled alone is ambiguous: verify model/context before continuing. This does not intercept native crashes or every modal window and does not bypass Cortex confirmation/security controls or enable persistent auto-approval.

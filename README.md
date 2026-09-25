@@ -54,6 +54,14 @@ Write access is controlled by the actual operating/safety settings instead:
 
 ## Main fork customization: timed script approval
 
+Ordinary destructive/bulk operations now use a separate per-operation window:
+one **Разрешить однократно / Allow once** button and an **Автовыполнение / Auto-run**
+checkbox, enabled by default at Revit startup. Each request counts down for
+3 seconds. Uncheck it to wait for manual approval; X or Escape cancels the current
+request. The choice lasts only for this process. The old two-minute/unlimited
+approval menu and floating Auto mode ON window are removed. This setting is
+independent of the custom-C# window described below, which remains opt-in.
+
 `send_code_to_revit` remains a last-resort feature for operations that are not covered by a dedicated RevitCortex tool.
 
 Custom C# execution is **disabled by default**. When enabled in **Settings → Tools**, every script still passes the existing settings gate, sandbox validation, router permissions and audit logging before execution.
@@ -63,7 +71,7 @@ For the final critical confirmation, this fork adds a dedicated Revit window wit
 - **Yes** — approve immediately;
 - **No** — cancel;
 - **Allow auto-run** — optional session-only automatic approval;
-- a visible **10-second countdown** on the Yes action when auto-run is enabled;
+- a visible **3-second countdown** on the Yes action when auto-run is enabled;
 - automatic approval when the countdown reaches zero;
 - manual Yes/No available at all times during the countdown.
 
@@ -164,6 +172,16 @@ Until `AlexFspb/RevitCortex` has its own release manifest/channel, updates shoul
 
 ## Settings and data
 
+When Cortex Switch is first enabled, the plugin automatically claims port **8080**
+or, if unavailable, **8888**. It keeps that assignment through stop/start within
+the same Revit process. Successful start/stop operations update the ribbon icon
+without an OK dialog. Settings shows the actual port read-only.
+Pin each client's MCP server to its matching `REVITCORTEX_PORT`; without an
+override the MCP server uses 8080 and never scans for another Revit.
+The legacy shared settings `Port` is no longer used for routing.
+See [multiple-instance setup](docs/MULTIPLE_REVIT_INSTANCES.md) for migration,
+optional fixed-port launchers and shared-data/Power BI limitations.
+
 Default user data lives under:
 
 ```text
@@ -188,3 +206,15 @@ For this fork, any legacy instruction that asks for R23/R24/R25/R27 build valida
 This repository is derived from `LuDattilo/RevitCortex`. The original project and its contributors remain the upstream source for the base implementation.
 
 The upstream copyright notice and MIT license are intentionally retained. See `LICENSE` for the exact terms.
+
+Once enabled, Cortex stays connected across family/project closure, including closing the last project. Model commands wait for an active document; queued commands for a closed or changed document are cancelled. Background families do not change the MCP target. Manual stop is respected. See [document lifecycle](docs/MULTIPLE_REVIT_INSTANCES.md#document-lifecycle).
+
+### Safe C# results and Revit failures
+
+Script results are validated before Cortex commits model changes. Return plain data rather than Revit objects. Lazy LINQ stays supported within bounded depth, node and response-size limits. Invalid results report a structured error and rollback state. Auto transactions roll back Revit errors; warnings are captured, removed from the failure dialog and returned in the successful response; script-owned transactions must configure the supplied handler. See [compatibility, error examples and manual verification](docs/safe-script-results.md).
+
+### Confirmation crash repair and build identification
+
+See [the September 25 fix](docs/confirmation-crash-fix.md) for timer lifecycle protection, ConfirmationFailed diagnostics, strict auto/none/group validation and per-process request journals. say_hello now includes buildId and coreModuleId so installed DLLs can be identified independently of their inherited assembly version.
+
+Confirmation windows use the active Revit process main window and monitor work area. An unrendered/invisible confirmation is cancelled after five seconds; pending confirmations expire with their request (at most 120 seconds), without authorizing a late script. Timeouts distinguish waiting for confirmation from executing code. See [confirmation lifecycle and remaining manual checks](docs/confirmation-crash-fix.md).

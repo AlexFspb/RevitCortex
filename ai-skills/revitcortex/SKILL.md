@@ -36,7 +36,12 @@ This fork supports **Autodesk Revit 2026 only**. Do not apply upstream R23/R24/R
 
 ## Script confirmation in this fork
 
-Critical C# execution uses the RevitCortex confirmation window. `Allow auto-run` is optional and session-only. When enabled, a visible **10-second countdown** auto-approves the script unless the user presses No or closes the dialog. The setting resets when Revit closes.
+Normal destructive/bulk requests use a separate one-button confirmation window.
+Its auto-run checkbox defaults to on at Revit startup and counts down for 3 seconds
+on each request. X/Escape cancels. This preference is independent of critical C#
+auto-run below. The old two-minute/unlimited menu and floating Auto mode UI are gone.
+
+Critical C# execution uses the RevitCortex confirmation window. `Allow auto-run` is optional and session-only. When enabled, a visible **3-second countdown** auto-approves the script unless the user presses No or closes the dialog. The setting resets when Revit closes.
 
 This does not disable sandbox validation, audit logging, read-only protection, or the rule to prefer dedicated tools.
 
@@ -51,3 +56,5 @@ This does not disable sandbox validation, audit logging, read-only protection, o
 
 - `index_40_Tool_Signature_Index.md`: quick tool-signature lookup; `tool-schemas.txt` is canonical.
 - `index_41_Workflow_Source_Map.md`: workflow source map.
+
+Document closure no longer stops an enabled Cortex server. Background families do not replace the active UI document. If no project is active, open a project; do not toggle the server unnecessarily. A command cancelled because its document changed must not be blindly retried: verify the active project first.

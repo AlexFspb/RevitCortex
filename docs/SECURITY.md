@@ -48,14 +48,17 @@ Custom C# must not be used as a workaround for read-only mode.
 
 Normal destructive/bulk tools can request confirmation through `CortexSession.RequestConfirmation(...)`.
 
-The normal confirmation flow can expose:
+Every normal confirmation request displays `OperationConfirmationWindow` with
+one Allow once button and an auto-run checkbox. Normal auto-run defaults to ON
+at process startup, with a visible 3-second delay for each request. Unchecking
+waits for manual approval. X/Escape cancels the current request, and a late timer
+tick cannot turn that cancellation into approval. Closing preserves the checkbox
+preference for the next request. The preference is not written to settings.json.
 
-- Yes
-- Yes to All (short-lived approval window)
-- Auto (generic normal-operation auto mode)
-- No
-
-These controls apply to normal destructive tool confirmations and are separate from the critical custom-C# confirmation.
+The old two-minute/unlimited UI choices and floating Auto mode ON window are
+removed. Legacy Core approval flags remain for compatibility; this UI never
+arms them. Normal approval returns true only for the current request. Critical
+custom-C# confirmation remains separate: Yes/No and opt-in session auto-run.
 
 ---
 
@@ -106,7 +109,7 @@ The user can choose:
 - **No** — cancel;
 - **Allow auto-run** — allow timed approval for critical scripts during the current Revit process.
 
-When **Allow auto-run** is enabled, the Yes action displays a visible **10-second countdown**. If the user does nothing, the current script is approved at zero. Yes and No remain available throughout the countdown.
+When **Allow auto-run** is enabled, the Yes action displays a visible **3-second countdown**. If the user does nothing, the current script is approved at zero. Yes and No remain available throughout the countdown.
 
 ### Important boundaries
 

@@ -29,7 +29,7 @@ public class SendCodeToRevitTool : ICortexTool
     public string Category => "Code";
     public bool RequiresDocument => true;
     public bool IsDynamic => false;
-    public string Description => "LAST RESORT ONLY — execute custom C# code in the Revit context. Prefer dedicated tools always; use ONLY when no dedicated tool covers the operation and after proposing the dedicated-tool alternative and obtaining explicit user consent. Globals: document (Document), uiDocument (UIDocument), app (Application). REQUIRES EnableCodeExecution=true in ~/.revitcortex/settings.json.";
+    public string Description => "LAST RESORT ONLY — execute custom C# code in the Revit context. Prefer dedicated tools always; use ONLY when no dedicated tool covers the operation within the user-authorized task. No separate chat approval is required; the configured Revit confirmation still applies. For every script-owned mutation transaction in group/none, call RevitCortex.Tools.CodeExecution.ScriptFailureHandling.Configure(tx) after Start and before changes. Auto mode configures it automatically. Errors roll back; warnings are removed from the Revit failure dialog and returned with descriptions and element IDs; inspect descriptions, severity and element IDs, verify commit status and retain the diagnostic report. Use a bounded dry-run before bulk replacement. Never force-accept errors or delete affected elements as recovery. Return plain data (scalars, anonymous objects, string-keyed dictionaries, arrays or LINQ), ElementId is converted to its 64-bit Value; other raw Revit objects are rejected. ResultSerializationFailed reports the result path and rollback state; do not blindly retry. Globals: document (Document), uiDocument (UIDocument), app (Application). REQUIRES EnableCodeExecution=true in ~/.revitcortex/settings.json.";
 
     public CortexResult<object> Execute(JObject input, CortexSession session)
     {
@@ -48,6 +48,8 @@ public class SendCodeToRevitTool : ICortexTool
 
         var code = input["code"]?.Value<string>();
         var transactionMode = input["transactionMode"]?.Value<string>() ?? "auto";
+        var modeError = ScriptTransactionMode.Validate(transactionMode);
+        if (modeError != null) return modeError;
         var reusable = input["reusable"]?.Value<bool>() ?? false;
         var scriptName = SanitizeName(input["scriptName"]?.Value<string>() ?? "script");
 
@@ -77,17 +79,8 @@ public class SendCodeToRevitTool : ICortexTool
             app = uiApp!.Application
         };
 
-        var result = RoslynExecutor.Execute(code!, globals, transactionMode);
-
-        if (result.Success && result.Data is not null)
-        {
-            var data = Newtonsoft.Json.Linq.JObject.FromObject(result.Data);
-            data["scriptSavedTo"] = scriptPath;
-            data["scriptLifetime"] = reusable ? "REUSABLE" : "TEMP (deleted at Revit close)";
-            return CortexResult<object>.Ok(data);
-        }
-
-        return result;
+        return RoslynExecutor.Execute(code!, globals, transactionMode, scriptPath,
+            reusable ? "REUSABLE" : "TEMP (deleted at Revit close)");
     }
 
     private static string PersistScript(string code, string scriptName, bool reusable)

@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.ComponentModel;
+using RevitCortex.Core.Session;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -8,14 +10,16 @@ namespace RevitCortex.Plugin.UI;
 
 /// <summary>
 /// Critical confirmation dialog used for send_code_to_revit and other critical actions.
-/// When "Allow auto-run" is enabled, the Yes button counts down from 10 seconds and
+/// When "Allow auto-run" is enabled, the Yes button counts down from 3 seconds and
 /// automatically approves the operation at zero. The preference is kept for the current
 /// Revit process only and resets when Revit is restarted.
 /// </summary>
 public partial class CriticalConfirmationWindow : Window
 {
-    private const int AutoApproveSeconds = 10;
+    private const int AutoApproveSeconds = 3;
     private readonly DispatcherTimer _timer;
+    private readonly ConfirmationDialogLifecycle _lifecycle = new();
+    private bool _rendered;
     private int _secondsRemaining = AutoApproveSeconds;
 
     /// <summary>
@@ -42,22 +46,20 @@ public partial class CriticalConfirmationWindow : Window
         AutoApproveCheckBox.IsChecked = AutoApproveEnabled;
         UpdateYesButtonText();
 
-        try
-        {
-            var owner = Process.GetCurrentProcess().MainWindowHandle;
-            if (owner != IntPtr.Zero)
-                new WindowInteropHelper(this).Owner = owner;
-        }
-        catch
-        {
-            // Owner attachment is cosmetic only; the dialog can still function without it.
-        }
+
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        if (AutoApproveCheckBox.IsChecked == true)
-            StartCountdown();
+        _lifecycle.MarkLoaded();
+    }
+
+    protected override void OnContentRendered(EventArgs e)
+    {
+        base.OnContentRendered(e);
+        if (_rendered) return;
+        _rendered = true;
+        if (_lifecycle.IsActive && AutoApproveCheckBox.IsChecked == true) StartCountdown();
     }
 
     private void AutoApprove_Checked(object sender, RoutedEventArgs e)
@@ -76,7 +78,7 @@ public partial class CriticalConfirmationWindow : Window
     {
         _secondsRemaining = AutoApproveSeconds;
         UpdateYesButtonText();
-        if (!_timer.IsEnabled)
+        if (_lifecycle.IsActive && _rendered && IsVisible && !_timer.IsEnabled)
             _timer.Start();
     }
 
@@ -90,6 +92,7 @@ public partial class CriticalConfirmationWindow : Window
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
+        if (!_lifecycle.IsActive || !_rendered || !IsVisible) { _timer.Stop(); return; }
         if (AutoApproveCheckBox.IsChecked != true)
         {
             StopCountdown(reset: true);
@@ -100,8 +103,7 @@ public partial class CriticalConfirmationWindow : Window
         if (_secondsRemaining <= 0)
         {
             _timer.Stop();
-            DialogResult = true;
-            Close();
+            Finish(true);
             return;
         }
 
@@ -118,21 +120,39 @@ public partial class CriticalConfirmationWindow : Window
     private void Yes_Click(object sender, RoutedEventArgs e)
     {
         _timer.Stop();
-        DialogResult = true;
-        Close();
+        Finish(true);
     }
 
     private void No_Click(object sender, RoutedEventArgs e)
     {
         _timer.Stop();
-        DialogResult = false;
-        Close();
+        Finish(false);
+    }
+
+    public bool? ShowConfirmation() => _lifecycle.Show(ShowDialog, CleanupConfirmation);
+
+    private void Finish(bool accepted)
+    {
+        _timer.Stop();
+        _lifecycle.Complete(accepted, value => DialogResult = value, Close);
+    }
+
+    public void CleanupConfirmation()
+    {
+        _lifecycle.End();
+        _timer.Stop();
+        _timer.Tick -= Timer_Tick;
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        CleanupConfirmation();
+        base.OnClosing(e);
     }
 
     protected override void OnClosed(EventArgs e)
     {
-        _timer.Stop();
-        _timer.Tick -= Timer_Tick;
+        CleanupConfirmation();
         base.OnClosed(e);
     }
 }
