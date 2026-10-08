@@ -80,6 +80,8 @@ public static class RoslynExecutor
         return null;
     }
 
+    // Retained public entry point for existing callers. MCP uses TryPrepare then ExecutePrepared
+    // so compilation errors are returned before confirmation and persistence.
     public static CortexResult<object> Execute(
         string code, ScriptGlobals globals, string transactionMode = "auto",
         string? scriptPath = null, string? scriptLifetime = null, bool strictWarnings = false)

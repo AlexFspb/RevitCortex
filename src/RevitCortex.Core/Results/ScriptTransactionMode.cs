@@ -3,7 +3,7 @@ namespace RevitCortex.Core.Results;
 public static class ScriptTransactionMode
 {
     public static CortexResult<object>? Validate(string? mode, bool strictWarnings = false) =>
-        strictWarnings && mode != null && mode != "auto" && (mode == "none" || mode == "group") ?
+        strictWarnings && (mode == "none" || mode == "group") ?
         CortexResult<object>.Fail(CortexErrorCode.InvalidInput,
             "strictWarnings=true requires transactionMode=auto. No script was executed.",
             suggestion: "In none/group configure each script-owned transaction with ScriptFailureHandling.Configure(tx, rollbackOnWarnings: true), and omit strictWarnings.") :
