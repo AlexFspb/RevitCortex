@@ -39,8 +39,11 @@ public class ScriptSafetySourceTests
         Assert.Contains("GetDescriptionText()", helper);
         Assert.Contains("GetFailingElementIds()", helper);
         Assert.Contains("id.Value", helper);
-        Assert.Contains("if (warning) accessor.DeleteWarning(failure)", helper);
-        Assert.Contains("_report.HasErrors ? FailureProcessingResult.ProceedWithRollBack", helper);
+        Assert.Contains("if (warning && !_rollbackOnWarnings) accessor.DeleteWarning(failure)", helper);
+        Assert.Contains("ShouldRollBack ? FailureProcessingResult.ProceedWithRollBack", helper);
+        Assert.Contains("_report.RequiresRollback(_rollbackOnWarnings)", helper);
+        Assert.Contains("Configure(transaction, rollbackOnWarnings: false)", helper);
+        Assert.Contains("action = ShouldRollBack ?", helper);
         Assert.Contains("txFailures.AppendWarnings(prepared)", source);
         Assert.Contains("value is ElementId id ? id.Value : null", source);
         Assert.Contains("ScriptFailureReport.ReserveBytes", source);

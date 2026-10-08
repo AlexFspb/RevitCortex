@@ -93,6 +93,15 @@ public class SendCodeDescriptionTests
         Assert.Contains("failure handling configured before changes", text);
         Assert.Contains("finally", text);
         Assert.Contains("IFamilyLoadOptions", text);
+        Assert.Contains("FamilyLoadPolicy", text);
+        Assert.Contains("rollbackOnWarnings: true", text);
+        Assert.Contains("none/group", text);
+        Assert.Contains("capture.Failures", text);
+        Assert.Contains("capture.OmittedFailures", text);
+        Assert.Contains("capture.DiagnosticReportPath", text);
+        Assert.Contains("Close(false)", text);
+        Assert.Contains("OverwriteExistingFile=false", text);
+        Assert.Contains("Cortex workflow rule", text);
         Assert.Contains("materialized plain data", text);
         Assert.Contains("none cannot roll back earlier commits", text);
         Assert.Contains("a timeout does not abort running Revit code", text);

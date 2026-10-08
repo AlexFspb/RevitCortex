@@ -21,7 +21,7 @@ namespace RevitCortex.Tools.CodeExecution;
 /// </summary>
 public static class RoslynExecutor
 {
-    private static readonly int PrefixLines = 12;
+    private static readonly int PrefixLines = 9;
 
     private static MethodInfo? _compileMethod;
     private static readonly object _compileLock = new object();
@@ -37,6 +37,8 @@ public static class RoslynExecutor
         if (modeError != null) return modeError;
         try
         {
+            var startError = ScriptFamilyEditGuard.CheckStart(globals.document, transactionMode);
+            if (startError != null) return startError;
             var wrappedCode = WrapCode(code);
             var referencePaths = GatherReferencePaths();
 
@@ -45,9 +47,9 @@ public static class RoslynExecutor
             try
             {
                 var compile = GetCompileMethod();
-                var args = new object?[] { wrappedCode, referencePaths.ToArray(), PrefixLines, null };
+                var args = new object?[] { wrappedCode, referencePaths.ToArray(), PrefixLines, transactionMode, null };
                 assemblyBytes = (byte[]?)compile.Invoke(null, args);
-                compileErrors = (string[])args[3]! ?? Array.Empty<string>();
+                compileErrors = (string[])args[4]! ?? Array.Empty<string>();
             }
             catch (TargetInvocationException ex) when (ex.InnerException != null)
             {
@@ -59,6 +61,10 @@ public static class RoslynExecutor
 
             if (assemblyBytes == null)
             {
+                // Keep this literal independent of Roslyn types in the isolated ALC.
+                if (compileErrors.Any(e => e.StartsWith("CORTEX_FAMILY_GUARD: ", StringComparison.Ordinal)))
+                    return new ScriptPreconditionException("FamilyEditCallRejected", "Document.EditFamily",
+                        string.Join("\n", compileErrors)).ToFailure(scriptExecuted: false);
                 return CortexResult<object>.Fail(
                     CortexErrorCode.InvalidInput,
                     $"Compilation error:\n{string.Join("\n", compileErrors)}",
@@ -141,6 +147,10 @@ public static class RoslynExecutor
         catch (ScriptResultException ex)
         {
             return ex.ToFailure("not_managed");
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is ScriptPreconditionException)
+        {
+            return ((ScriptPreconditionException)ex.InnerException!).ToFailure(scriptExecuted: true);
         }
         catch (TargetInvocationException ex) when (ex.InnerException != null)
         {

@@ -31,7 +31,7 @@ public static class RoslynCompilerWorker
     /// on failure (with <paramref name="errors"/> populated, line numbers already adjusted to
     /// be relative to the user's code via <paramref name="prefixLines"/>).
     /// </summary>
-    public static byte[]? Compile(string wrappedCode, string[] referencePaths, int prefixLines, out string[] errors)
+    public static byte[]? Compile(string wrappedCode, string[] referencePaths, int prefixLines, string transactionMode, out string[] errors)
     {
         var parseOptions = CSharpParseOptions.Default
             .WithLanguageVersion(LanguageVersion.Latest);
@@ -57,6 +57,10 @@ public static class RoslynCompilerWorker
                 OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Release,
                 allowUnsafe: false));
+
+        var guardedTree = FamilyEditCallRewriter.Rewrite(compilation, syntaxTree, transactionMode, prefixLines, out errors);
+        if (errors.Length != 0) return null;
+        if (guardedTree != syntaxTree) compilation = compilation.ReplaceSyntaxTree(syntaxTree, guardedTree);
 
         using var ms = new MemoryStream();
         var emitResult = compilation.Emit(ms);

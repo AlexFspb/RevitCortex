@@ -17,6 +17,8 @@ public sealed class ScriptFailureReport
     public int WarningCount { get; private set; }
     public bool HasErrors { get; private set; }
 
+    public bool RequiresRollback(bool rollbackOnWarnings) => HasErrors || (rollbackOnWarnings && WarningCount > 0);
+
     // Return true only for warnings that may be removed from Revit's failure dialog.
     public bool Record(string severity, string description, IEnumerable<long> elementIds)
     {

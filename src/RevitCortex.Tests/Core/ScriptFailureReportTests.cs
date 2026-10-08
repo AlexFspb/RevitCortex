@@ -7,6 +7,30 @@ namespace RevitCortex.Tests.Core;
 
 public class ScriptFailureReportTests
 {
+    [Theory]
+    [InlineData("None", false, false)]
+    [InlineData("None", true, false)]
+    [InlineData("Warning", false, false)]
+    [InlineData("Warning", true, true)]
+    [InlineData("Error", false, true)]
+    [InlineData("Error", true, true)]
+    public void StrictWarningPolicyDoesNotChangeCompatibleDefault(string severity, bool strict, bool expected)
+    {
+        var report = new ScriptFailureReport();
+        report.Record(severity, "Test failure", new long[] { 123 });
+        Assert.Equal(expected, report.RequiresRollback(strict));
+    }
+
+    [Fact]
+    public void StrictPolicyStillRollsBackAfterDiagnosticBudgetIsExhausted()
+    {
+        var report = new ScriptFailureReport();
+        for (int i = 0; i < 110; i++) report.Record("Warning", "Warning", new long[] { i });
+        Assert.True(report.OmittedFailures > 0);
+        Assert.True(report.RequiresRollback(true));
+        Assert.False(report.RequiresRollback(false));
+    }
+
     [Fact]
     public void WarningsAreReturnedWithoutRequestingRollback()
     {
