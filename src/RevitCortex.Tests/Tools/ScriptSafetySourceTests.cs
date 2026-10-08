@@ -28,7 +28,7 @@ public class ScriptSafetySourceTests
     {
         var source = Source("CodeExecution", "RoslynExecutor.cs");
         var start = source.IndexOf("tx.Start();", StringComparison.Ordinal);
-        var configure = source.IndexOf("ScriptFailureHandling.Configure(tx)", StringComparison.Ordinal);
+        var configure = source.IndexOf("ScriptFailureHandling.Configure(tx, rollbackOnWarnings: strictWarnings)", StringComparison.Ordinal);
         var invoke = source.IndexOf("prepared = Prepare();", start, StringComparison.Ordinal);
         Assert.True(start < configure && configure < invoke);
         Assert.Contains("txFailures.ToFailure(status)", source);

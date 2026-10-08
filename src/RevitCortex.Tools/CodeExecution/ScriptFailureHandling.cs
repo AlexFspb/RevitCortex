@@ -56,22 +56,8 @@ public static class ScriptFailureHandling
             return ShouldRollBack ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;
         }
 
-        public CortexResult<object> ToFailure(TransactionStatus status)
-        {
-            var rolledBack = status == TransactionStatus.RolledBack;
-            return CortexResult<object>.Fail(CortexErrorCode.TransactionFailed,
-                rolledBack ? "Revit rejected the script transaction; changes in this transaction were rolled back."
-                    : "Revit did not commit the script transaction; rollback is not confirmed.",
-                suggestion: "Inspect failure descriptions and element IDs. Verify model state before retrying. Use a bounded dry-run before bulk replacement; do not force-accept failures or delete affected elements as recovery.",
-                context: new Dictionary<string, object>
-                {
-                    ["transactionState"] = rolledBack ? "rolled_back" : status.ToString(),
-                    ["failures"] = Failures, ["omittedFailures"] = OmittedFailures,
-                    ["warningCount"] = _report.WarningCount,
-                    ["diagnosticReportPath"] = DiagnosticReportPath ?? "(report could not be saved)",
-                    ["externalEffectsMayRemain"] = true
-                });
-        }
+        public CortexResult<object> ToFailure(TransactionStatus status) =>
+            _report.ToFailure(status.ToString(), _rollbackOnWarnings, DiagnosticReportPath);
 
         private void SaveReport()
         {

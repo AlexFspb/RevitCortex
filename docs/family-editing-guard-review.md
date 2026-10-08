@@ -1,5 +1,7 @@
 # Проверка Claude: программные запреты для EditFamily
 
+Актуальная проверка: [исправления review.6](family-editing-review6.md). Ниже сохранён отчёт о guard.5.
+
 Дата: 2026-10-08. Сборка: `2026.10.08-family-edit-guard.5`.
 Репозиторий: `AlexFspb/RevitCortex`, ветка `fix/per-instance-revit-port`, PR №2.
 База этой модификации: `ff25d5088ac5317468c2ab091d7c0adfc795e559`.

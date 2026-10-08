@@ -35,6 +35,7 @@ internal static class FamilyEditCallRewriter
 
             string? problem = null;
             if (mode != "none") problem = "EditFamily requires transactionMode=none; auto/group are rejected before script execution.";
+            else if (info.Symbol == null) continue; // Preserve original overload diagnostics; never rewrite unresolved calls.
             else if (owner != "Autodesk.Revit.DB.Document") continue; // Explicit guarded helper is already protected.
             else if (name.Parent is MemberAccessExpressionSyntax member &&
                      member.Parent is InvocationExpressionSyntax call && call.Expression == member)

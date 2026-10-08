@@ -21,6 +21,27 @@ public class ScriptFailureReportTests
         Assert.Equal(expected, report.RequiresRollback(strict));
     }
 
+    [Theory]
+    [InlineData(true, false, "RolledBack", true)]
+    [InlineData(true, true, "RolledBack", false)]
+    [InlineData(false, false, "RolledBack", false)]
+    [InlineData(true, false, "Pending", false)]
+    public void FailureResponseDistinguishesStrictPolicyErrorsAndUnconfirmedRollback(
+        bool strict, bool error, string status, bool strictMessage)
+    {
+        var report = new ScriptFailureReport();
+        report.Record("Warning", "Duplicate mark", new long[] { 12 });
+        if (error) report.Record("Error", "Cannot rotate", new long[] { 13 });
+        var result = report.ToFailure(status, strict, "diagnostic.json");
+        Assert.Equal(CortexErrorCode.TransactionFailed, result.Error!.Code);
+        Assert.Equal(strictMessage, result.Error.Message.Contains("strict warning policy (no errors)"));
+        Assert.Equal(strict, result.Error.Context!["rollbackOnWarnings"]);
+        Assert.Equal(error, result.Error.Context["hasErrors"]);
+        Assert.Equal(status == "RolledBack" ? "rolled_back" : status, result.Error.Context["transactionState"]);
+        Assert.Equal("diagnostic.json", result.Error.Context["diagnosticReportPath"]);
+        if (status == "Pending") Assert.Contains("rollback is not confirmed", result.Error.Message);
+    }
+
     [Fact]
     public void StrictPolicyStillRollsBackAfterDiagnosticBudgetIsExhausted()
     {

@@ -82,6 +82,8 @@ public class SendCodeDescriptionTests
 
     private static void AssertFamilyEditingGuidance(string text)
     {
+        Assert.Contains("strictWarnings=true", text);
+        Assert.Contains("before confirmation and persistence", text);
         Assert.Contains("Document.EditFamily is supported in a valid ExternalEvent API context", text);
         Assert.Contains("transactionMode=none, not auto/group", text);
         Assert.Contains("IsModifiable=false", text);

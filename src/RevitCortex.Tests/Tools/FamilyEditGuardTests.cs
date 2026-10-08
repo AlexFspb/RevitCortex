@@ -16,6 +16,8 @@ public class FamilyEditGuardTests
         "..", "..", "..", "..", "RevitCortex.Tools", "CodeExecution", "ScriptFamilyEditGuard.cs")));
 
     private const string FakeApi = """
+        namespace Autodesk.Revit.UI { public class UIDocument { } }
+        namespace Autodesk.Revit.ApplicationServices { public class Application { } }
         namespace Autodesk.Revit.DB {
             public enum FamilySource { Project, Family }
             public interface IFamilyLoadOptions {
@@ -214,8 +216,13 @@ public class FamilyEditGuardTests
         var persist = tool.IndexOf("var scriptPath = PersistScript", StringComparison.Ordinal);
         Assert.True(first >= 0 && first < confirm && confirm < second && second < persist);
         var executor = File.ReadAllText(Path.Combine(root, "CodeExecution", "RoslynExecutor.cs"));
-        Assert.True(executor.IndexOf("ScriptFamilyEditGuard.CheckStart", StringComparison.Ordinal) <
-                    executor.IndexOf("var wrappedCode", StringComparison.Ordinal));
+        var preflight = tool.IndexOf("RoslynExecutor.TryPrepare", StringComparison.Ordinal);
+        Assert.True(first < preflight && preflight < confirm);
+        Assert.Contains("if (compileError != null) return compileError;", tool);
+        Assert.Contains("RoslynExecutor.ExecutePrepared(prepared!", tool);
+        var execute = executor.IndexOf("internal static CortexResult<object> ExecutePrepared", StringComparison.Ordinal);
+        Assert.True(executor.IndexOf("ScriptFamilyEditGuard.CheckStart", execute, StringComparison.Ordinal) <
+                    executor.IndexOf("Assembly.Load(script.AssemblyBytes)", execute, StringComparison.Ordinal));
         Assert.Contains("ex.InnerException is ScriptPreconditionException", executor);
         Assert.Contains("ToFailure(scriptExecuted: true)", executor);
     }
@@ -234,6 +241,56 @@ public class FamilyEditGuardTests
             return ordinary + ":" + shared + ":" + overwriteOrdinary + ":" + overwriteShared + ":" + source;
             """);
         Assert.Equal($"True:True:{overwrite}:{overwrite}:{(projectShared ? "Project" : "Family")}", value);
+    }
+
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("group")]
+    public void UnrelatedLocalFunctionNamedEditFamilyIsNotRejected(string mode)
+    {
+        var result = Compile("int EditFamily(int x) => x; return EditFamily(1);", mode);
+        Assert.NotNull(result.Bytes);
+        Assert.Empty(result.Errors);
+    }
+
+    [Theory]
+    [InlineData("none")]
+    [InlineData("auto")]
+    public void InvalidOverloadRetainsOriginalArgumentDiagnostics(string mode)
+    {
+        // Rewriting would change the failing argument from 1 to 2 (inserted document).
+        var result = Compile(Setup + "return doc.EditFamily(123);", mode);
+        Assert.Null(result.Bytes);
+        Assert.Contains(result.Errors, e => e.Contains("Argument 1:") && e.Contains("Family"));
+        Assert.DoesNotContain(result.Errors, e => e.Contains("Argument 2:"));
+        Assert.Equal(mode == "auto", result.Errors.Any(e => e.StartsWith("CORTEX_FAMILY_GUARD:")));
+    }
+
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("group")]
+    public void PolicyFailureAndOrdinaryCompileErrorsAreBothReported(string mode)
+    {
+        var result = Compile(Setup + "doc.EditFamily(f); return missingVariable;", mode);
+        Assert.Null(result.Bytes);
+        Assert.Contains(result.Errors, e => e.StartsWith("CORTEX_FAMILY_GUARD:"));
+        Assert.Contains(result.Errors, e => e.Contains("missingVariable"));
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(3, false)]
+    [InlineData(1, true)]
+    [InlineData(3, true)]
+    public void RealWrapperReportsUserLineNumbers(int line, bool policyFailure)
+    {
+        var body = new string('\n', line - 1) + (policyFailure
+            ? "return document.EditFamily(new Family());" : "return missingVariable;");
+        var bytes = RoslynCompilerWorker.Compile(RoslynExecutor.WrapCode(body),
+            References.Append(HelperAssembly.Value).ToArray(), RoslynExecutor.PrefixLines, "auto", out var errors);
+        Assert.Null(bytes);
+        Assert.Single(errors);
+        Assert.StartsWith((policyFailure ? "CORTEX_FAMILY_GUARD: " : "") + $"Line {line}:", errors[0]);
     }
 
     [Fact]

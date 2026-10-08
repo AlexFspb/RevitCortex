@@ -14,6 +14,24 @@ public class ScriptTransactionModeTests
     public void AcceptsOnlyImplementedModes(string? mode) => Assert.Null(ScriptTransactionMode.Validate(mode));
 
     [Theory]
+    [InlineData("none")]
+    [InlineData("group")]
+    public async Task StrictWarningsCannotSilentlyLeaveOwnedTransactionsUnprotected(string mode)
+    {
+        Assert.Null(ScriptTransactionMode.Validate(mode, false));
+        var response = await ProjectTools.SendCodeToRevit(null!, "return 1;", mode, strictWarnings: true);
+        Assert.Contains("InvalidInput", response);
+        Assert.Contains("Configure", response);
+        Assert.Contains("No script was executed", response);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("auto")]
+    public void StrictWarningsSupportsDefaultAuto(string? mode) =>
+        Assert.Null(ScriptTransactionMode.Validate(mode, true));
+
+    [Theory]
     [InlineData("readonly")]
     [InlineData("manual")]
     [InlineData("AUTO")]

@@ -21,57 +21,90 @@ namespace RevitCortex.Tools.CodeExecution;
 /// </summary>
 public static class RoslynExecutor
 {
-    private static readonly int PrefixLines = 9;
+    internal const int PrefixLines = 9;
 
     private static MethodInfo? _compileMethod;
     private static readonly object _compileLock = new object();
 
-    public static CortexResult<object> Execute(
-        string code,
-        ScriptGlobals globals,
-        string transactionMode = "auto",
-        string? scriptPath = null,
-        string? scriptLifetime = null)
+    // Only the compiler creates these bytes. Keep them internal and tied to their checked mode.
+    internal sealed class PreparedScript
     {
-        var modeError = ScriptTransactionMode.Validate(transactionMode);
+        internal byte[] AssemblyBytes { get; }
+        internal string TransactionMode { get; }
+        internal PreparedScript(byte[] bytes, string mode) { AssemblyBytes = bytes; TransactionMode = mode; }
+    }
+
+    internal static CortexResult<object>? TryPrepare(string code, string transactionMode, out PreparedScript? prepared)
+    {
+        prepared = null;
+        var wrappedCode = WrapCode(code);
+
+        byte[]? assemblyBytes;
+        string[] compileErrors;
+        try
+        {
+            var referencePaths = GatherReferencePaths();
+            var compile = GetCompileMethod();
+            var args = new object?[] { wrappedCode, referencePaths.ToArray(), PrefixLines, transactionMode, null };
+            assemblyBytes = (byte[]?)compile.Invoke(null, args);
+            compileErrors = (string[])args[4]! ?? Array.Empty<string>();
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException != null)
+        {
+            return CortexResult<object>.Fail(
+                CortexErrorCode.Unknown,
+                $"Roslyn compilation failed: {ex.InnerException.Message}",
+                suggestion: "This is an internal compiler/assembly-loading error, not a problem with your code.");
+        }
+
+        catch (Exception ex)
+        {
+            return CortexResult<object>.Fail(CortexErrorCode.Unknown,
+                $"Roslyn compilation failed before script execution: {ex.Message}",
+                suggestion: "Inspect compiler/assembly-loading diagnostics. No script was executed.");
+        }
+
+        if (assemblyBytes == null)
+        {
+            // Keep this literal independent of Roslyn types in the isolated ALC.
+            if (compileErrors.Any(e => e.StartsWith("CORTEX_FAMILY_GUARD: ", StringComparison.Ordinal)))
+                return new ScriptPreconditionException("FamilyEditCallRejected", "Document.EditFamily",
+                string.Join("\n", compileErrors)).ToFailure(scriptExecuted: false);
+            return CortexResult<object>.Fail(
+                CortexErrorCode.InvalidInput,
+                $"Compilation error:\n{string.Join("\n", compileErrors)}",
+                suggestion: "Globals: document (Document), uiDocument (UIDocument), app (Application). Use explicit 'return'.");
+        }
+
+        prepared = new PreparedScript(assemblyBytes, transactionMode);
+        return null;
+    }
+
+    public static CortexResult<object> Execute(
+        string code, ScriptGlobals globals, string transactionMode = "auto",
+        string? scriptPath = null, string? scriptLifetime = null, bool strictWarnings = false)
+    {
+        var modeError = ScriptTransactionMode.Validate(transactionMode, strictWarnings);
+        if (modeError != null) return modeError;
+        var startError = ScriptFamilyEditGuard.CheckStart(globals.document, transactionMode);
+        if (startError != null) return startError;
+        var compileError = TryPrepare(code, transactionMode, out var prepared);
+        if (compileError != null) return compileError;
+        return ExecutePrepared(prepared!, globals, scriptPath, scriptLifetime, strictWarnings);
+    }
+
+    internal static CortexResult<object> ExecutePrepared(
+        PreparedScript script, ScriptGlobals globals,
+        string? scriptPath = null, string? scriptLifetime = null, bool strictWarnings = false)
+    {
+        var transactionMode = script.TransactionMode;
+        var modeError = ScriptTransactionMode.Validate(transactionMode, strictWarnings);
         if (modeError != null) return modeError;
         try
         {
             var startError = ScriptFamilyEditGuard.CheckStart(globals.document, transactionMode);
             if (startError != null) return startError;
-            var wrappedCode = WrapCode(code);
-            var referencePaths = GatherReferencePaths();
-
-            byte[]? assemblyBytes;
-            string[] compileErrors;
-            try
-            {
-                var compile = GetCompileMethod();
-                var args = new object?[] { wrappedCode, referencePaths.ToArray(), PrefixLines, transactionMode, null };
-                assemblyBytes = (byte[]?)compile.Invoke(null, args);
-                compileErrors = (string[])args[4]! ?? Array.Empty<string>();
-            }
-            catch (TargetInvocationException ex) when (ex.InnerException != null)
-            {
-                return CortexResult<object>.Fail(
-                    CortexErrorCode.Unknown,
-                    $"Roslyn compilation failed: {ex.InnerException.Message}",
-                    suggestion: "This is an internal compiler/assembly-loading error, not a problem with your code.");
-            }
-
-            if (assemblyBytes == null)
-            {
-                // Keep this literal independent of Roslyn types in the isolated ALC.
-                if (compileErrors.Any(e => e.StartsWith("CORTEX_FAMILY_GUARD: ", StringComparison.Ordinal)))
-                    return new ScriptPreconditionException("FamilyEditCallRejected", "Document.EditFamily",
-                        string.Join("\n", compileErrors)).ToFailure(scriptExecuted: false);
-                return CortexResult<object>.Fail(
-                    CortexErrorCode.InvalidInput,
-                    $"Compilation error:\n{string.Join("\n", compileErrors)}",
-                    suggestion: "Globals: document (Document), uiDocument (UIDocument), app (Application). Use explicit 'return'.");
-            }
-
-            var assembly = Assembly.Load(assemblyBytes);
+            var assembly = Assembly.Load(script.AssemblyBytes);
             var type = assembly.GetType("RevitCortex.DynamicScript.ScriptRunner")!;
             var method = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!;
 
@@ -121,7 +154,7 @@ public static class RoslynExecutor
             {
                 using var tx = new Transaction(globals.document, "RevitCortex: Script");
                 tx.Start();
-                var txFailures = ScriptFailureHandling.Configure(tx);
+                var txFailures = ScriptFailureHandling.Configure(tx, rollbackOnWarnings: strictWarnings);
                 try
                 {
                     prepared = Prepare();
@@ -221,7 +254,7 @@ public static class RoslynExecutor
         }
     }
 
-    private static string WrapCode(string userCode)
+    internal static string WrapCode(string userCode)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("using System;");

@@ -44,6 +44,26 @@ public sealed class ScriptFailureReport
         return warning;
     }
 
+    public CortexResult<object> ToFailure(string transactionStatus, bool rollbackOnWarnings, string? reportPath)
+    {
+        var rolledBack = transactionStatus == "RolledBack";
+        var strictWarningRollback = rollbackOnWarnings && WarningCount > 0 && !HasErrors;
+        return CortexResult<object>.Fail(CortexErrorCode.TransactionFailed,
+            !rolledBack ? "Revit did not commit the script transaction; rollback is not confirmed."
+                : strictWarningRollback ? "Cortex rolled back the script transaction by strict warning policy (no errors); changes in this transaction were rolled back."
+                : "Revit rejected the script transaction; changes in this transaction were rolled back.",
+            suggestion: "Inspect failure descriptions and element IDs. Verify model state before retrying. Do not retry blindly. Use a bounded dry-run before bulk replacement; do not force-accept failures or delete affected elements as recovery.",
+            context: new Dictionary<string, object>
+            {
+                ["transactionState"] = rolledBack ? "rolled_back" : transactionStatus,
+                ["failures"] = Failures, ["omittedFailures"] = OmittedFailures,
+                ["warningCount"] = WarningCount, ["hasErrors"] = HasErrors,
+                ["rollbackOnWarnings"] = rollbackOnWarnings,
+                ["diagnosticReportPath"] = reportPath ?? "(report could not be saved)",
+                ["externalEffectsMayRemain"] = true
+            });
+    }
+
     public void AppendWarnings(JObject response, string? reportPath)
     {
         if (WarningCount == 0) return;
