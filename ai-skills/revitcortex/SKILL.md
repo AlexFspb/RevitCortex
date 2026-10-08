@@ -29,6 +29,7 @@ This fork supports **Autodesk Revit 2026 only**. Do not apply upstream R23/R24/R
 | Power BI | `operator_01`, `operator_08` |
 | Obsidian / knowledge | `operator_09` |
 | Custom C# script | `operator_10` |
+| Loaded-family editing | `operator_10`, `operator_11` |
 | New C# tool | `developer_20`, `developer_21`, `developer_22`, `developer_25` |
 | Build / C# failure | `developer_22`, `developer_25` |
 | Dynamic tools | `developer_23` |

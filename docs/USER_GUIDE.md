@@ -160,7 +160,7 @@ Avoid opening conflicting nested transactions when RevitCortex already owns the 
 
 ### Important limitation
 
-Do not use modal family-editing flows such as `Document.EditFamily` from the MCP external-event execution path. Modal Revit API flows can deadlock the request.
+`Document.EditFamily` is supported in a valid ExternalEvent API context; it is not inherently a modal UI command. Custom family-edit scripts must use `transactionMode: "none"`, not `auto`/`group`. Check the source document and family preconditions; manage family transactions, failure handling, explicit reload options and document cleanup. Never invoke interactive editor/dialog flows. `none` does not provide a cross-document/file rollback. A timeout does not abort running API code. See [family editing](family-editing.md).
 
 ---
 

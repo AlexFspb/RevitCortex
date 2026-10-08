@@ -66,14 +66,14 @@ Use `ElementId.Value` for Revit 2026 API code.
 
 ## Important limitation
 
-Do not call modal family editing flows such as `Document.EditFamily` from the external-event execution context. Modal Revit API flows can deadlock the MCP request path.
+`Document.EditFamily` is supported in a valid ExternalEvent API context; it is not inherently a modal UI command. Custom family-edit scripts must use `transactionMode: "none"`, not `auto`/`group`. Check the source document and family preconditions; manage family transactions, failure handling, explicit reload options and document cleanup. Never invoke interactive editor/dialog flows. `none` does not provide a cross-document/file rollback. A timeout does not abort running API code. See [family editing](operator_11_Family_Editing.md).
 
 ## Required checks
 
 - [ ] Dedicated-tool alternative checked first.
 - [ ] Code execution enabled.
 - [ ] Sandbox validation remains active.
-- [ ] No prohibited modal `EditFamily` flow.
+- [ ] Family editing, if needed, uses `none`, valid document/family preconditions, failure handling and guaranteed cleanup; no interactive UI flow.
 - [ ] Critical confirmation is not bypassed in code.
 - [ ] Auto-run, if enabled by the user, is treated as session-only approval behavior.
 

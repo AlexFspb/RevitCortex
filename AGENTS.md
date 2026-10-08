@@ -119,7 +119,7 @@ Available script globals:
 
 Use `ElementId.Value` for Revit 2026 API code.
 
-Do not use modal family-editing flows such as `Document.EditFamily` from the MCP external-event execution path.
+`Document.EditFamily` is supported in a valid ExternalEvent API context; it is not inherently a modal UI command. Custom family-edit scripts must use `transactionMode: "none"`, not `auto`/`group`. Check the source document and family preconditions; manage family transactions, failure handling, explicit reload options and document cleanup. Never invoke interactive editor/dialog flows. `none` does not provide a cross-document/file rollback. A timeout does not abort running API code. See [family editing](docs/family-editing.md).
 
 ## Script result and failure contract
 
