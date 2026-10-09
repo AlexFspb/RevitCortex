@@ -1,3 +1,5 @@
+> **2026-10-08 correction:** Historical EditFamily UI-fragility claims below do not establish a blanket ExternalEvent prohibition. See [the current Revit 2026 contract](../../family-editing.md).
+
 # RevitCortex — Tool Completeness Gap Analysis
 
 **Date:** 2026-05-29

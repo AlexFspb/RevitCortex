@@ -1,5 +1,7 @@
 # RevitCortex — Autodesk Revit 2026 Fork
 
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8880 → 8088; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Critical C# auto-run now defaults to ON at each Revit launch, independently of ordinary auto-run; both retain the visible 3-second countdown, cancellation and process-local opt-out. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+
 > **Scope of this fork: Autodesk Revit 2026 only.**
 >
 > Revit 2023, 2024, 2025 and 2027 plugin targets were intentionally removed so development, testing, installation and release packaging can focus on **Revit 2026 / .NET 8**.
@@ -54,6 +56,14 @@ Write access is controlled by the actual operating/safety settings instead:
 
 ## Main fork customization: timed script approval
 
+Ordinary destructive/bulk operations now use a separate per-operation window:
+one **Разрешить однократно / Allow once** button and an **Автовыполнение / Auto-run**
+checkbox, enabled by default at Revit startup. Each request counts down for
+3 seconds. Uncheck it to wait for manual approval; X or Escape cancels the current
+request. The choice lasts only for this process. The old two-minute/unlimited
+approval menu and floating Auto mode ON window are removed. This setting is
+independent of the custom-C# window described below, which also defaults to on.
+
 `send_code_to_revit` remains a last-resort feature for operations that are not covered by a dedicated RevitCortex tool.
 
 Custom C# execution is **disabled by default**. When enabled in **Settings → Tools**, every script still passes the existing settings gate, sandbox validation, router permissions and audit logging before execution.
@@ -62,12 +72,12 @@ For the final critical confirmation, this fork adds a dedicated Revit window wit
 
 - **Yes** — approve immediately;
 - **No** — cancel;
-- **Allow auto-run** — optional session-only automatic approval;
-- a visible **10-second countdown** on the Yes action when auto-run is enabled;
+- **Allow auto-run** — session-only automatic approval, enabled by default at Revit startup;
+- a visible **3-second countdown** on the Yes action when auto-run is enabled;
 - automatic approval when the countdown reaches zero;
 - manual Yes/No available at all times during the countdown.
 
-`Allow auto-run` is intentionally **not persisted** to `settings.json`. It resets when Revit closes.
+`Allow auto-run` is intentionally **not persisted** to `settings.json`. It resets to enabled on the next Revit launch.
 
 ## Safety model
 
@@ -76,7 +86,7 @@ For the final critical confirmation, this fork adds a dedicated Revit window wit
 - User-selected read-only mode continues to block write tools.
 - `send_code_to_revit` continues to use sandbox validation and audit logging.
 - The timed auto-run option automates only the final critical approval; it does not disable the other safety gates.
-- Modal family-editing flows such as `Document.EditFamily` should not be executed from the MCP external-event path because they can deadlock Revit.
+- `Document.EditFamily` is supported in a valid ExternalEvent API context; it is not inherently a modal UI command. Cortex rejects script entry with an open transaction and instruments direct EditFamily calls with runtime precondition checks. Unsupported delegate/conditional call forms fail before execution. ScriptPreconditionFailed reports whether script execution began; earlier effects are not claimed rolled back. Custom family-edit scripts must use `transactionMode: "none"`, not `auto`/`group`. Check the source document and family preconditions; manage family transactions and cleanup. Use the shipped FamilyLoadPolicy with both choices explicit, and Configure(tx, rollbackOnWarnings: true) for strict tasks. In none/group return capture diagnostics yourself; check the Close(false) boolean result. SaveAs uses a literal path in an existing folder; filesystem/backup checks stay outside the sandbox. Never invoke interactive editor/dialog flows. `none` does not provide a cross-document/file rollback. A timeout does not abort running API code. See [family editing](docs/family-editing.md). Compiler checks run once before confirmation and script persistence. In auto, use strictWarnings=true for tasks requiring rollback on warnings (default false). This flag is rejected in none/group; configure each owned transaction with rollbackOnWarnings: true instead.
 
 ## Diagnostic reports
 
@@ -164,6 +174,16 @@ Until `AlexFspb/RevitCortex` has its own release manifest/channel, updates shoul
 
 ## Settings and data
 
+When Cortex Switch is first enabled, the plugin automatically claims port **8080**
+or, if unavailable, **8888**. It keeps that assignment through stop/start within
+the same Revit process. Successful start/stop operations update the ribbon icon
+without an OK dialog. Settings shows the actual port read-only.
+Pin each client's MCP server to its matching `REVITCORTEX_PORT`; without an
+override the MCP server uses 8080 and never scans for another Revit.
+The legacy shared settings `Port` is no longer used for routing.
+See [multiple-instance setup](docs/MULTIPLE_REVIT_INSTANCES.md) for migration,
+optional fixed-port launchers and shared-data/Power BI limitations.
+
 Default user data lives under:
 
 ```text
@@ -188,3 +208,15 @@ For this fork, any legacy instruction that asks for R23/R24/R25/R27 build valida
 This repository is derived from `LuDattilo/RevitCortex`. The original project and its contributors remain the upstream source for the base implementation.
 
 The upstream copyright notice and MIT license are intentionally retained. See `LICENSE` for the exact terms.
+
+Once enabled, Cortex stays connected across family/project closure, including closing the last project. Model commands wait for an active document; queued commands for a closed or changed document are cancelled. Background families do not change the MCP target. Manual stop is respected. See [document lifecycle](docs/MULTIPLE_REVIT_INSTANCES.md#document-lifecycle).
+
+### Safe C# results and Revit failures
+
+Script results are validated before Cortex commits model changes. Return plain data rather than Revit objects. Lazy LINQ stays supported within bounded depth, node and response-size limits. Invalid results report a structured error and rollback state. Auto transactions roll back Revit errors; warnings are captured, removed from the failure dialog and returned in the successful response; script-owned transactions must configure the supplied handler. See [compatibility, error examples and manual verification](docs/safe-script-results.md).
+
+### Confirmation crash repair and build identification
+
+See [the September 25 fix](docs/confirmation-crash-fix.md) for timer lifecycle protection, ConfirmationFailed diagnostics, strict auto/none/group validation and per-process request journals. say_hello now includes buildId and coreModuleId so installed DLLs can be identified independently of their inherited assembly version.
+
+Confirmation windows use the active Revit process main window and monitor work area. An unrendered/invisible confirmation is cancelled after five seconds; pending confirmations expire with their request (at most 120 seconds), without authorizing a late script. Timeouts distinguish waiting for confirmation from executing code. See [confirmation lifecycle and remaining manual checks](docs/confirmation-crash-fix.md).

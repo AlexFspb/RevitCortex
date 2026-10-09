@@ -1,5 +1,7 @@
 # RevitCortex 2026 — Security Model
 
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8880 → 8088; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Critical C# auto-run now defaults to ON at each Revit launch, independently of ordinary auto-run; both retain the visible 3-second countdown, cancellation and process-local opt-out. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+
 This document describes the current security behavior of the **Autodesk Revit 2026** fork.
 
 ## Scope
@@ -48,14 +50,17 @@ Custom C# must not be used as a workaround for read-only mode.
 
 Normal destructive/bulk tools can request confirmation through `CortexSession.RequestConfirmation(...)`.
 
-The normal confirmation flow can expose:
+Every normal confirmation request displays `OperationConfirmationWindow` with
+one Allow once button and an auto-run checkbox. Normal auto-run defaults to ON
+at process startup, with a visible 3-second delay for each request. Unchecking
+waits for manual approval. X/Escape cancels the current request, and a late timer
+tick cannot turn that cancellation into approval. Closing preserves the checkbox
+preference for the next request. The preference is not written to settings.json.
 
-- Yes
-- Yes to All (short-lived approval window)
-- Auto (generic normal-operation auto mode)
-- No
-
-These controls apply to normal destructive tool confirmations and are separate from the critical custom-C# confirmation.
+The old two-minute/unlimited UI choices and floating Auto mode ON window are
+removed. Legacy Core approval flags remain for compatibility; this UI never
+arms them. Normal approval returns true only for the current request. Critical
+custom-C# confirmation remains separate: Yes/No and default-on session auto-run.
 
 ---
 
@@ -106,7 +111,7 @@ The user can choose:
 - **No** — cancel;
 - **Allow auto-run** — allow timed approval for critical scripts during the current Revit process.
 
-When **Allow auto-run** is enabled, the Yes action displays a visible **10-second countdown**. If the user does nothing, the current script is approved at zero. Yes and No remain available throughout the countdown.
+When **Allow auto-run** is enabled, the Yes action displays a visible **3-second countdown**. If the user does nothing, the current script is approved at zero. Yes and No remain available throughout the countdown.
 
 ### Important boundaries
 
@@ -142,7 +147,7 @@ A failed or rolled-back transaction must not be reported as success.
 
 ## Modal Revit API operations
 
-Do not run modal family-editing flows such as `Document.EditFamily` from the MCP external-event execution context. Modal Revit UI/API workflows can block the external-event request and deadlock the caller.
+`Document.EditFamily` is supported in a valid ExternalEvent API context; it is not inherently a modal UI command. Cortex rejects script entry with an open transaction and instruments direct EditFamily calls with runtime precondition checks. Unsupported delegate/conditional call forms fail before execution. ScriptPreconditionFailed reports whether script execution began; earlier effects are not claimed rolled back. Custom family-edit scripts must use `transactionMode: "none"`, not `auto`/`group`. Check the source document and family preconditions; manage family transactions and cleanup. Use the shipped FamilyLoadPolicy with both choices explicit, and Configure(tx, rollbackOnWarnings: true) for strict tasks. In none/group return capture diagnostics yourself; check the Close(false) boolean result. SaveAs uses a literal path in an existing folder; filesystem/backup checks stay outside the sandbox. Never invoke interactive editor/dialog flows. `none` does not provide a cross-document/file rollback. A timeout does not abort running API code. See [family editing](family-editing.md). Compiler checks run once before confirmation and script persistence. In auto, use strictWarnings=true for tasks requiring rollback on warnings (default false). This flag is rejected in none/group; configure each owned transaction with rollbackOnWarnings: true instead.
 
 ---
 

@@ -18,11 +18,10 @@ namespace RevitCortex.Plugin.UI;
 
 public partial class GeneralSettingsPage : Page
 {
-    private static int DefaultPort => CortexEnvironment.Current.DefaultPort;
+    private static int DefaultPort => CortexPort.PrimaryPort;
     private const string DefaultLogLevel = "Info";
     private const int DefaultKeepCount = 10;
     private DispatcherTimer? _saveFeedbackTimer;
-    private int _originalPort;
     private DispatcherTimer? _downloadTimer;
 
     private static string SettingsFilePath => CortexEnvironment.Current.SettingsFilePath;
@@ -32,6 +31,7 @@ public partial class GeneralSettingsPage : Page
         InitializeComponent();
         ApplyLocalizedStrings();
         LoadSettings();
+        ShowPortOverride();
         LoadVersionInfo();
         RefreshConnectionStatus();
         RefreshUpdateBanner();
@@ -244,6 +244,7 @@ public partial class GeneralSettingsPage : Page
 
     private void RefreshConnectionStatus()
     {
+        ShowPortOverride();
         var app = RevitCortexApp.Instance;
         bool running = app?.IsServiceRunning ?? false;
         int port = app?.Port ?? DefaultPort;
@@ -265,7 +266,7 @@ public partial class GeneralSettingsPage : Page
             StatusBanner.BorderBrush = new SolidColorBrush(Color.FromRgb(224, 224, 224));
             StatusTitle.Text = "Server stopped";
             StatusDetail.Text = "Click 'Cortex Switch' in the ribbon to start";
-            PortBadgeText.Text = $"Port {port}";
+            PortBadgeText.Text = app?.HasAssignedPort == true ? $"Port {port}" : $"Auto {string.Join(" / ", RevitCortex.Core.Hosting.CortexPort.AutomaticPorts(CortexEnvironment.Current.IsDev))}";
             PortBadge.Background = new SolidColorBrush(Color.FromRgb(224, 224, 224));
         }
     }
@@ -280,8 +281,6 @@ public partial class GeneralSettingsPage : Page
                 var settings = JsonConvert.DeserializeObject<CortexSettings>(json);
                 if (settings != null)
                 {
-                    _originalPort = settings.Port;
-                    PortTextBox.Text = settings.Port.ToString();
                     SetComboSelection(LogLevelComboBox, settings.LogLevel ?? DefaultLogLevel);
                     ReadOnlyCheckBox.IsChecked = settings.ReadOnlyMode;
                     KeepCountTextBox.Text = ClampKeepCount(settings.SupportReportKeepCount).ToString();
@@ -324,11 +323,21 @@ public partial class GeneralSettingsPage : Page
 
     private void SetDefaults()
     {
-        _originalPort = DefaultPort;
-        PortTextBox.Text = DefaultPort.ToString();
         SetComboSelection(LogLevelComboBox, DefaultLogLevel);
         KeepCountTextBox.Text = DefaultKeepCount.ToString();
         EnableTelemetryCheckBox.IsChecked = false;
+        ShowPortOverride();
+    }
+
+    private void ShowPortOverride()
+    {
+        var app = RevitCortexApp.Instance;
+        PortTextBox.Text = app?.HasAssignedPort == true ? app.Port.ToString() : string.Join(" / ", RevitCortex.Core.Hosting.CortexPort.AutomaticPorts(CortexEnvironment.Current.IsDev));
+        PortTextBox.IsReadOnly = true;
+        PortHelpText.Text = app?.IsPortOverridden == true
+            ? "Set by this Revit's launcher. Restart with another launcher port to change it."
+            : $"Automatic: first free port, {string.Join(" then ", RevitCortex.Core.Hosting.CortexPort.AutomaticPorts(CortexEnvironment.Current.IsDev))}. Assigned when Cortex Switch starts.";
+        PortTextBox.ToolTip = "This port is not saved to the shared settings file.";
     }
 
     private static int ClampKeepCount(int n) => n < 1 ? 1 : (n > 200 ? 200 : n);
@@ -348,13 +357,6 @@ public partial class GeneralSettingsPage : Page
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (!int.TryParse(PortTextBox.Text.Trim(), out int port) || port < 1 || port > 65535)
-        {
-            MessageBox.Show("Please enter a valid port number (1-65535).", "Invalid Port",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
         string logLevel = (LogLevelComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? DefaultLogLevel;
 
         if (!int.TryParse(KeepCountTextBox.Text.Trim(), out int keep)) keep = DefaultKeepCount;
@@ -367,7 +369,6 @@ public partial class GeneralSettingsPage : Page
                 ? JObject.Parse(File.ReadAllText(SettingsFilePath))
                 : new JObject();
 
-            settings["Port"] = port;
             settings["LogLevel"] = logLevel;
             settings["ReadOnlyMode"] = ReadOnlyCheckBox.IsChecked == true;
             settings["SupportReportKeepCount"] = keep;
@@ -384,16 +385,7 @@ public partial class GeneralSettingsPage : Page
             if (RevitCortexApp.Instance?.Router != null)
                 RevitCortexApp.Instance.Router.ReadOnlyMode = ReadOnlyCheckBox.IsChecked == true;
 
-            bool portChanged = port != _originalPort;
-            if (portChanged)
-            {
-                ShowSaveFeedback("Saved \u2713  Restart Revit for port change", success: true, restartHint: true);
-                _originalPort = port;
-            }
-            else
-            {
-                ShowSaveFeedback("Saved \u2713", success: true);
-            }
+            ShowSaveFeedback("Saved \u2713", success: true);
         }
         catch (Exception ex)
         {

@@ -1,4 +1,3 @@
-#if REVIT2025_OR_GREATER
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -31,7 +30,7 @@ public static class RoslynCompilerWorker
     /// on failure (with <paramref name="errors"/> populated, line numbers already adjusted to
     /// be relative to the user's code via <paramref name="prefixLines"/>).
     /// </summary>
-    public static byte[]? Compile(string wrappedCode, string[] referencePaths, int prefixLines, out string[] errors)
+    public static byte[]? Compile(string wrappedCode, string[] referencePaths, int prefixLines, string transactionMode, out string[] errors)
     {
         var parseOptions = CSharpParseOptions.Default
             .WithLanguageVersion(LanguageVersion.Latest);
@@ -58,24 +57,21 @@ public static class RoslynCompilerWorker
                 optimizationLevel: OptimizationLevel.Release,
                 allowUnsafe: false));
 
+        var guardedTree = FamilyEditCallRewriter.Rewrite(compilation, syntaxTree, transactionMode, prefixLines, out var guardErrors);
+        if (guardErrors.Length == 0 && guardedTree != syntaxTree) compilation = compilation.ReplaceSyntaxTree(syntaxTree, guardedTree);
+
         using var ms = new MemoryStream();
         var emitResult = compilation.Emit(ms);
 
-        if (!emitResult.Success)
-        {
-            errors = emitResult.Diagnostics
+        errors = guardErrors.Concat(emitResult.Diagnostics
                 .Where(d => d.Severity == DiagnosticSeverity.Error)
                 .Select(d =>
                 {
                     var line = d.Location.GetLineSpan().StartLinePosition.Line + 1 - prefixLines;
                     return $"Line {line}: {d.GetMessage()}";
                 })
-                .ToArray();
-            return null;
-        }
-
-        errors = Array.Empty<string>();
-        return ms.ToArray();
+                ).ToArray();
+        // Even a successful Emit cannot authorize a script rejected by the guard.
+        return emitResult.Success && errors.Length == 0 ? ms.ToArray() : null;
     }
 }
-#endif

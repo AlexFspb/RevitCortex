@@ -5,10 +5,8 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
 using Autodesk.Revit.DB;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using RevitCortex.Core.Results;
-using RevitCortex.Tools.Utilities;
 
 namespace RevitCortex.Tools.CodeExecution;
 
@@ -23,55 +21,105 @@ namespace RevitCortex.Tools.CodeExecution;
 /// </summary>
 public static class RoslynExecutor
 {
-    private static readonly int PrefixLines = 12;
+    internal const int PrefixLines = 9;
 
     private static MethodInfo? _compileMethod;
     private static readonly object _compileLock = new object();
 
-    public static CortexResult<object> Execute(
-        string code,
-        ScriptGlobals globals,
-        string transactionMode = "auto")
+    // Only the compiler creates these bytes. Keep them internal and tied to their checked mode.
+    internal sealed class PreparedScript
     {
+        internal byte[] AssemblyBytes { get; }
+        internal string TransactionMode { get; }
+        internal PreparedScript(byte[] bytes, string mode) { AssemblyBytes = bytes; TransactionMode = mode; }
+    }
+
+    internal static CortexResult<object>? TryPrepare(string code, string transactionMode, out PreparedScript? prepared)
+    {
+        prepared = null;
+        var wrappedCode = WrapCode(code);
+
+        byte[]? assemblyBytes;
+        string[] compileErrors;
         try
         {
-            var wrappedCode = WrapCode(code);
             var referencePaths = GatherReferencePaths();
+            var compile = GetCompileMethod();
+            var args = new object?[] { wrappedCode, referencePaths.ToArray(), PrefixLines, transactionMode, null };
+            assemblyBytes = (byte[]?)compile.Invoke(null, args);
+            compileErrors = (string[])args[4]! ?? Array.Empty<string>();
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException != null)
+        {
+            return CortexResult<object>.Fail(
+                CortexErrorCode.Unknown,
+                $"Roslyn compilation failed: {ex.InnerException.Message}",
+                suggestion: "This is an internal compiler/assembly-loading error, not a problem with your code.");
+        }
 
-            byte[]? assemblyBytes;
-            string[] compileErrors;
-            try
-            {
-                var compile = GetCompileMethod();
-                var args = new object?[] { wrappedCode, referencePaths.ToArray(), PrefixLines, null };
-                assemblyBytes = (byte[]?)compile.Invoke(null, args);
-                compileErrors = (string[])args[3]! ?? Array.Empty<string>();
-            }
-            catch (TargetInvocationException ex) when (ex.InnerException != null)
-            {
-                return CortexResult<object>.Fail(
-                    CortexErrorCode.Unknown,
-                    $"Roslyn compilation failed: {ex.InnerException.Message}",
-                    suggestion: "This is an internal compiler/assembly-loading error, not a problem with your code.");
-            }
+        catch (Exception ex)
+        {
+            return CortexResult<object>.Fail(CortexErrorCode.Unknown,
+                $"Roslyn compilation failed before script execution: {ex.Message}",
+                suggestion: "Inspect compiler/assembly-loading diagnostics. No script was executed.");
+        }
 
-            if (assemblyBytes == null)
-            {
-                return CortexResult<object>.Fail(
-                    CortexErrorCode.InvalidInput,
-                    $"Compilation error:\n{string.Join("\n", compileErrors)}",
-                    suggestion: "Globals: document (Document), uiDocument (UIDocument), app (Application). Use explicit 'return'.");
-            }
+        if (assemblyBytes == null)
+        {
+            // Keep this literal independent of Roslyn types in the isolated ALC.
+            if (compileErrors.Any(e => e.StartsWith("CORTEX_FAMILY_GUARD: ", StringComparison.Ordinal)))
+                return new ScriptPreconditionException("FamilyEditCallRejected", "Document.EditFamily",
+                string.Join("\n", compileErrors)).ToFailure(scriptExecuted: false);
+            return CortexResult<object>.Fail(
+                CortexErrorCode.InvalidInput,
+                $"Compilation error:\n{string.Join("\n", compileErrors)}",
+                suggestion: "Globals: document (Document), uiDocument (UIDocument), app (Application). Use explicit 'return'.");
+        }
 
-            var assembly = Assembly.Load(assemblyBytes);
+        prepared = new PreparedScript(assemblyBytes, transactionMode);
+        return null;
+    }
+
+    // Retained public entry point for existing callers. MCP uses TryPrepare then ExecutePrepared
+    // so compilation errors are returned before confirmation and persistence.
+    public static CortexResult<object> Execute(
+        string code, ScriptGlobals globals, string transactionMode = "auto",
+        string? scriptPath = null, string? scriptLifetime = null, bool strictWarnings = false)
+    {
+        var modeError = ScriptTransactionMode.Validate(transactionMode, strictWarnings);
+        if (modeError != null) return modeError;
+        var startError = ScriptFamilyEditGuard.CheckStart(globals.document, transactionMode);
+        if (startError != null) return startError;
+        var compileError = TryPrepare(code, transactionMode, out var prepared);
+        if (compileError != null) return compileError;
+        return ExecutePrepared(prepared!, globals, scriptPath, scriptLifetime, strictWarnings);
+    }
+
+    internal static CortexResult<object> ExecutePrepared(
+        PreparedScript script, ScriptGlobals globals,
+        string? scriptPath = null, string? scriptLifetime = null, bool strictWarnings = false)
+    {
+        var transactionMode = script.TransactionMode;
+        var modeError = ScriptTransactionMode.Validate(transactionMode, strictWarnings);
+        if (modeError != null) return modeError;
+        try
+        {
+            var startError = ScriptFamilyEditGuard.CheckStart(globals.document, transactionMode);
+            if (startError != null) return startError;
+            var assembly = Assembly.Load(script.AssemblyBytes);
             var type = assembly.GetType("RevitCortex.DynamicScript.ScriptRunner")!;
             var method = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!;
 
-            object? result;
+            JObject prepared;
+            JObject Prepare() => SafeScriptResultProjector.Project(
+                method.Invoke(null, new object[] { globals.document, globals.uiDocument, globals.app }),
+                scriptPath, scriptLifetime,
+                elementIdValue: value => value is ElementId id ? id.Value : null,
+                diagnosticReserveBytes: transactionMode == "none" || transactionMode == "group" ? 0 : ScriptFailureReport.ReserveBytes);
 
             if (transactionMode == "none")
             {
-                result = method.Invoke(null, new object[] { globals.document, globals.uiDocument, globals.app });
+                prepared = Prepare();
             }
             else if (transactionMode == "group")
             {
@@ -79,15 +127,23 @@ public static class RoslynExecutor
                 txGroup.Start();
                 try
                 {
-                    result = method.Invoke(null, new object[] { globals.document, globals.uiDocument, globals.app });
-                    if (txGroup.GetStatus() == TransactionStatus.Started
-                        && txGroup.Assimilate() != TransactionStatus.Committed)
+                    prepared = Prepare();
+                    var groupStatus = txGroup.GetStatus();
+                    if (groupStatus == TransactionStatus.Started) groupStatus = txGroup.Assimilate();
+                    if (groupStatus != TransactionStatus.Committed)
                     {
                         return CortexResult<object>.Fail(
                             CortexErrorCode.TransactionFailed,
-                            "Revit rolled back the script transaction group on commit.",
-                            suggestion: "The script triggered a Revit error during commit. Fix the reported model errors and retry.");
+                            groupStatus == TransactionStatus.RolledBack
+                                ? "Revit rolled back the script transaction group."
+                                : "Revit did not commit the script transaction group; rollback is not confirmed.",
+                            suggestion: "Inspect Revit failures and verify model state before retrying. Do not retry automatically.",
+                            context: new Dictionary<string, object> { ["transactionState"] = groupStatus.ToString() });
                     }
+                }
+                catch (ScriptResultException ex)
+                {
+                    return ex.ToFailure(TryRollback(txGroup.GetStatus, txGroup.RollBack));
                 }
                 catch
                 {
@@ -99,19 +155,19 @@ public static class RoslynExecutor
             else
             {
                 using var tx = new Transaction(globals.document, "RevitCortex: Script");
-                var txFailures = TransactionFailureHandling.SuppressWarnings(tx);
                 tx.Start();
+                var txFailures = ScriptFailureHandling.Configure(tx, rollbackOnWarnings: strictWarnings);
                 try
                 {
-                    result = method.Invoke(null, new object[] { globals.document, globals.uiDocument, globals.app });
-                    if (tx.GetStatus() == TransactionStatus.Started
-                        && tx.Commit() != TransactionStatus.Committed)
-                    {
-                        return CortexResult<object>.Fail(
-                            CortexErrorCode.TransactionFailed,
-                            $"Revit rolled back the script transaction: {TransactionFailureHandling.Describe(txFailures)}",
-                            suggestion: "The script triggered a Revit error during commit. Fix the reported model errors and retry.");
-                    }
+                    prepared = Prepare();
+                    var status = tx.GetStatus();
+                    if (status == TransactionStatus.Started) status = tx.Commit();
+                    if (status != TransactionStatus.Committed) return txFailures.ToFailure(status);
+                    txFailures.AppendWarnings(prepared);
+                }
+                catch (ScriptResultException ex)
+                {
+                    return ex.ToFailure(TryRollback(tx.GetStatus, tx.RollBack));
                 }
                 catch
                 {
@@ -121,7 +177,15 @@ public static class RoslynExecutor
                 }
             }
 
-            return CortexResult<object>.Ok(SerializeResult(result));
+            return CortexResult<object>.Ok(prepared);
+        }
+        catch (ScriptResultException ex)
+        {
+            return ex.ToFailure("not_managed");
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is ScriptPreconditionException)
+        {
+            return ((ScriptPreconditionException)ex.InnerException!).ToFailure(scriptExecuted: true);
         }
         catch (TargetInvocationException ex) when (ex.InnerException != null)
         {
@@ -192,7 +256,7 @@ public static class RoslynExecutor
         }
     }
 
-    private static string WrapCode(string userCode)
+    internal static string WrapCode(string userCode)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("using System;");
@@ -225,27 +289,14 @@ public static class RoslynExecutor
         return refs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static object SerializeResult(object? result)
+    private static string TryRollback(Func<TransactionStatus> status, Func<TransactionStatus> rollback)
     {
-        if (result == null)
-            return new { result = (object?)null };
-
-        if (result is string || result.GetType().IsPrimitive || result is decimal)
-            return new { result };
-
         try
         {
-            var json = JsonConvert.SerializeObject(result,
-                new JsonSerializerSettings
-                {
-                    ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
-                    Error = (_, args) => args.ErrorContext.Handled = true
-                });
-            return new { result = JToken.Parse(json) };
+            var current = status();
+            if (current == TransactionStatus.Started) current = rollback();
+            return current == TransactionStatus.RolledBack ? "rolled_back" : "not_rolled_back";
         }
-        catch
-        {
-            return new { result = result.ToString() };
-        }
+        catch { return "unknown"; }
     }
 }

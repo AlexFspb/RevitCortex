@@ -6,8 +6,8 @@
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
-        ShowInTaskbar="False"
-        WindowStyle="ToolWindow"
+        ShowInTaskbar="True"
+        WindowStyle="SingleBorderWindow"
         Background="White"
         Loaded="Window_Loaded">
 
@@ -74,7 +74,7 @@
                               FontWeight="SemiBold"
                               Checked="AutoApprove_Checked"
                               Unchecked="AutoApprove_Unchecked"/>
-                    <TextBlock Text="When enabled, C# scripts are approved automatically after a 10-second countdown. The setting stays active for this Revit session."
+                    <TextBlock Text="When enabled, C# scripts are approved automatically after a 3-second countdown. The setting stays active for this Revit session."
                                FontSize="11"
                                Foreground="#666"
                                TextWrapping="Wrap"

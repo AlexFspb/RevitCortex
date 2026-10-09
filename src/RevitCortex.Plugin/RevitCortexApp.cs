@@ -13,6 +13,7 @@ using RevitCortex.Plugin.Threading;
 using RevitCortex.Plugin.UI;
 using System;
 using System.Reflection;
+using System.Linq;
 
 namespace RevitCortex.Plugin;
 
@@ -23,10 +24,13 @@ public class RevitCortexApp : IExternalApplication
     private CortexSession? _session;
     private DocumentChangeWatcher? _cacheWatcher;
     private UIApplication? _uiApplication;
-    private int _port = CortexEnvironment.Current.DefaultPort;
+    private int _port = CortexPort.PrimaryPort;
+    private readonly StartupAttempt _autoStart = new();
+    private Document? _serviceDocument;
     private Autodesk.Revit.UI.PushButton? _connectButton;
-    private UI.AutoModeWindow? _autoModeWindow;
+
     private bool _updateNotificationShown;
+    private string? _portWarning;
     private PbiSelectHttpListener? _pbiSelectListener;
     private PbiActionEventHandler? _pbiActionHandler;
     private ExternalEvent? _pbiActionEvent;
@@ -55,6 +59,8 @@ public class RevitCortexApp : IExternalApplication
     }
 
     public int Port => _port;
+    public bool IsPortOverridden { get; private set; }
+    public bool HasAssignedPort => IsPortOverridden || _socketService?.HasBoundPort == true;
     public UIApplication? UiApplication => _uiApplication;
     public CortexRouter? Router => _router;
     public CortexSession? Session => _session;
@@ -67,15 +73,14 @@ public class RevitCortexApp : IExternalApplication
 
         try
         {
+            LoadPort();
             CreateRibbonPanel(application);
 
             var store = new SessionStore();
             _session = new CortexSession(store);
-            _session.ConfirmAction = (action, count, desc) =>
-                ConfirmationHelper.ConfirmWithSession(action, count, desc, _session);
+            _session.ConfirmAction = ConfirmationHelper.Confirm;
             _session.CriticalConfirmAction = ConfirmationHelper.ConfirmCritical;
-            _session.AutoModeActivity += OnAutoModeActivity;
-            ConfirmationHelper.AutoModeChanged += OnAutoModeChanged;
+            _session.EnsureServiceDocument = EnsureServiceDocument;
             var analyzer = new DocumentAnalyzer();
 
             var auditLogger = new AuditLogger(CortexEnvironment.Current.AuditLogPath);
@@ -95,10 +100,10 @@ public class RevitCortexApp : IExternalApplication
             var externalEvent = ExternalEvent.Create(executionHandler);
             var dispatcher = new RevitThreadDispatcher(executionHandler, externalEvent);
             _router.SetDispatcher(dispatcher);
+            _session.CanPrepareScript = () => !_router.DisabledTools.Contains("send_code_to_revit");
 
             LoadDisabledTools();
             LoadReadOnlyMode();
-            LoadPort();
 
             RevitCortex.Plugin.Updates.UpdateChecker.UpdateAvailable += OnUpdateAvailable;
             RevitCortex.Plugin.Updates.UpdateChecker.CheckInBackground();
@@ -138,7 +143,6 @@ public class RevitCortexApp : IExternalApplication
         {
             Telemetry.TelemetryBootstrap.Shutdown();
 
-            ConfirmationHelper.AutoModeChanged -= OnAutoModeChanged;
             _pbiSelectListener?.Dispose();
             _pbiSelectListener = null;
             _socketService?.Stop();
@@ -174,7 +178,12 @@ public class RevitCortexApp : IExternalApplication
                     $"[RevitCortex] Session initialized with document: {activeDocument.Title}, locale: {locale}");
             }
 
-            _socketService.Start();
+            if (IsPortOverridden)
+                _socketService.Start();
+            else
+                _port = _socketService.StartOnFirstAvailablePort(CortexPort.AutomaticPorts(CortexEnvironment.Current.IsDev));
+
+            _session!.BridgePort = _port;
 
             if (_pbiSelectListener == null && _pbiActionHandler != null && _pbiActionEvent != null)
             {
@@ -200,6 +209,7 @@ public class RevitCortexApp : IExternalApplication
 
     public void StopService()
     {
+        _autoStart.Suppress();
         _pbiSelectListener?.Stop();
         _pbiSelectListener = null;
         _socketService?.Stop();
@@ -238,54 +248,6 @@ public class RevitCortexApp : IExternalApplication
         _connectButton.ToolTip = active
             ? $"RevitCortex 2026 running on port {_port} — click to stop"
             : "Start RevitCortex 2026 server";
-    }
-
-    private void OnAutoModeChanged(bool active)
-    {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.CheckAccess())
-        {
-            dispatcher.BeginInvoke((System.Action)(() => OnAutoModeChanged(active)));
-            return;
-        }
-
-        if (active)
-        {
-            if (_autoModeWindow != null) return;
-            try
-            {
-                var revitHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
-                _autoModeWindow = new UI.AutoModeWindow(revitHandle);
-                _autoModeWindow.StopRequested += OnAutoModeWindowStopRequested;
-                _autoModeWindow.Closed += (_, _) => _autoModeWindow = null;
-                _autoModeWindow.Show();
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Trace.WriteLine(
-                    $"[RevitCortex] Could not show Auto mode window: {ex.Message}");
-                _autoModeWindow = null;
-            }
-        }
-        else
-        {
-            _autoModeWindow?.CloseFromHost();
-            _autoModeWindow = null;
-        }
-    }
-
-    private void OnAutoModeActivity()
-    {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher == null) return;
-        dispatcher.BeginInvoke((System.Action)(() => _autoModeWindow?.RegisterActivity()));
-    }
-
-    private void OnAutoModeWindowStopRequested()
-    {
-        if (_session != null)
-            _session.AutoMode = false;
-        ConfirmationHelper.NotifyAutoModeChanged(false);
     }
 
     private void CreateRibbonPanel(UIControlledApplication application)
@@ -336,38 +298,20 @@ public class RevitCortexApp : IExternalApplication
 
     private void OnDocumentOpened(object? sender, DocumentOpenedEventArgs args)
     {
-        var doc = args.Document;
-        if (doc == null) return;
-
-        var locale = LocaleDetector.Detect(doc);
-        _router!.OnDocumentChanged(doc, locale);
-
-        if (_uiApplication != null)
-            _session?.Store.Set("uiApplication", _uiApplication);
-
-        System.Diagnostics.Trace.WriteLine(
-            $"[RevitCortex] Document opened. Locale: {locale}, " +
-            $"Capabilities: {_router!.GetAvailableToolNames().Count} tools available");
+        // OpenDocumentFile may open a background family. Only ActiveUIDocument
+        // defines the MCP target; ViewActivated/Idling reconcile it when ready.
+        SynchronizeActiveDocument();
     }
 
     private void OnDocumentClosing(object? sender, DocumentClosingEventArgs args)
     {
         try
         {
-            if (_socketService != null && _socketService.IsRunning)
-            {
-                _socketService.Stop();
-                UpdateConnectionButtonIcon();
-                ServiceStateChanged?.Invoke();
-                System.Diagnostics.Trace.WriteLine(
-                    "[RevitCortex] Server stopped: document closing");
-            }
-
-            _session?.Reinitialize(new Core.Discovery.DocumentCapabilities(), "en");
-            ConfirmationHelper.NotifyAutoModeChanged(false);
-
-            System.Diagnostics.Trace.WriteLine(
-                "[RevitCortex] Session reset: document closing");
+            _router?.OnDocumentClosing(args.Document);
+            if (_uiApplication != null)
+                _session?.Store.Set("uiApplication", _uiApplication);
+            // The listener belongs to the Revit process, not to a document.
+            // Keep it (and its port) alive even when the last document closes.
         }
         catch (Exception ex)
         {
@@ -376,28 +320,71 @@ public class RevitCortexApp : IExternalApplication
         }
     }
 
+    private void SynchronizeActiveDocument()
+    {
+        if (_uiApplication == null || _router == null) return;
+        try
+        {
+            var doc = _uiApplication.ActiveUIDocument?.Document;
+            if (doc != null && !doc.IsValidObject) doc = null;
+            var currentDoc = _session?.CaptureDocumentContext().Document;
+            if (!object.Equals(currentDoc, doc))
+            {
+                _router.SynchronizeActiveDocument(doc, doc == null ? "en" : LocaleDetector.Detect(doc));
+                _session?.Store.Set("uiApplication", _uiApplication);
+                System.Diagnostics.Trace.WriteLine(
+                    $"[RevitCortex] Active document synchronized: {doc?.Title ?? "(none)"}");
+            }
+            _session?.UpdateDocumentTitle(doc?.Title);
+            _session?.UpdateDocumentMetadata(doc?.PathName, doc != null && _serviceDocument?.IsValidObject == true && object.Equals(doc, _serviceDocument));
+        }
+        catch (Exception ex)
+        {
+            // Do not retain a stale model if analysis fails. The next Idling retries.
+            try
+            {
+                _router.SynchronizeActiveDocument(null);
+                _session?.Store.Set("uiApplication", _uiApplication);
+            }
+            catch (Exception cleanupError)
+            {
+                System.Diagnostics.Trace.WriteLine($"[RevitCortex] Context cleanup failed: {cleanupError}");
+            }
+            System.Diagnostics.Trace.WriteLine(
+                $"[RevitCortex] Active document synchronization failed: {ex.Message}");
+        }
+    }
+
     private void OnIdling(object? sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
     {
-        if (_uiApplication != null) return;
-        _uiApplication = sender as UIApplication;
-
-        if (_uiApplication != null)
+        if (_uiApplication == null)
         {
+            _uiApplication = sender as UIApplication;
+            if (_uiApplication == null) return;
             _uiApplication.ViewActivated += OnViewActivated;
             _session?.Store.Set("uiApplication", _uiApplication);
-
-            var doc = _uiApplication.ActiveUIDocument?.Document;
-            if (doc != null && _router != null &&
-                _session?.Store.Get<object>("activeDocument") == null)
-            {
-                var locale = LocaleDetector.Detect(doc);
-                _router.OnDocumentChanged(doc, locale);
-                System.Diagnostics.Trace.WriteLine(
-                    $"[RevitCortex] Session initialized from Idling: {doc.Title}, locale: {locale}");
-            }
-
             if (RevitCortex.Plugin.Updates.UpdateChecker.Latest?.HasUpdate == true)
                 ShowUpdateNotification();
+        }
+
+        // Runs after close completes OR is cancelled, and handles an empty Revit.
+        SynchronizeActiveDocument();
+        if (_autoStart.Take())
+        {
+            try { StartService(); }
+            catch (Exception ex)
+            {
+                WriteStartupFailure(ex);
+                _portWarning = "Cortex could not start automatically: " + ex.Message + ". Use Cortex Switch to retry.";
+                UpdateConnectionButtonIcon();
+            }
+        }
+        if (_portWarning != null)
+        {
+            var warning = _portWarning;
+            _portWarning = null; // One attempt per startup, including if notification fails.
+            try { new PortWarningWindow(warning, _uiApplication.MainWindowHandle).Show(); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[RevitCortex] Port warning UI failed: {ex.Message}"); }
         }
     }
 
@@ -428,45 +415,71 @@ public class RevitCortexApp : IExternalApplication
 
     private void OnViewActivated(object? sender, ViewActivatedEventArgs e)
     {
-        var doc = e.CurrentActiveView?.Document;
-        if (doc == null || _router == null) return;
+        SynchronizeActiveDocument();
+    }
 
-        var currentDoc = _session?.Store.Get<object>("activeDocument");
-        if (currentDoc != doc)
+    private RevitCortex.Core.Results.CortexResult<object> EnsureServiceDocument(bool requireEmpty)
+    {
+        var ui = _uiApplication;
+        if (ui == null || _session == null)
+            return RevitCortex.Core.Results.CortexResult<object>.Fail(RevitCortex.Core.Results.CortexErrorCode.InvalidInput, "Revit is not ready.");
+        if (ui.ActiveUIDocument != null)
         {
-            var locale = LocaleDetector.Detect(doc);
-            _router.OnDocumentChanged(doc, locale);
-            if (_uiApplication != null)
-                _session?.Store.Set("uiApplication", _uiApplication);
-            System.Diagnostics.Trace.WriteLine(
-                $"[RevitCortex] Document switched: {doc.Title}, locale: {locale}");
+            if (requireEmpty) return new RevitCortex.Core.Session.DocumentContextChangedException().ToResult();
+            SynchronizeActiveDocument();
+            return RevitCortex.Core.Results.CortexResult<object>.Ok(_session.ConnectionStatus());
         }
+        string? path = null;
+        Document? seed = null;
+        try
+        {
+            var folder = System.IO.Path.Combine(CortexEnvironment.Current.RootFolder, "service-projects", _session.InstanceId);
+            System.IO.Directory.CreateDirectory(folder);
+            path = System.IO.Path.Combine(folder, "Cortex-service-" + System.Diagnostics.Process.GetCurrentProcess().Id + "-" + Guid.NewGuid().ToString("N") + ".rvt");
+            seed = ui.Application.NewProjectDocument(UnitSystem.Metric);
+            using (var options = new SaveAsOptions { OverwriteExistingFile = false }) seed.SaveAs(path, options);
+            if (!seed.Close(false)) throw new InvalidOperationException("Could not close the newly created background service project.");
+            seed = null;
+            // Never replace a document opened by another callback while creating the seed.
+            if (ui.ActiveUIDocument != null) throw new InvalidOperationException("A document became active during service-project creation. The script has not run.");
+            _serviceDocument = ui.OpenAndActivateDocument(path).Document;
+            SynchronizeActiveDocument();
+            var response = _session.ConnectionStatus();
+            response["serviceDocumentCreated"] = true;
+            return RevitCortex.Core.Results.CortexResult<object>.Ok(response);
+        }
+        catch (Exception ex)
+        {
+            string? cleanupError = null;
+            if (seed != null) { try { if (!seed.Close(false)) cleanupError = "Close returned false"; } catch (Exception close) { cleanupError = close.Message; } }
+            WriteStartupFailure(ex);
+            return RevitCortex.Core.Results.CortexResult<object>.Fail(RevitCortex.Core.Results.CortexErrorCode.Unknown,
+                "Service project preparation failed. The script was not executed: " + ex.Message,
+                suggestion: "Inspect Revit state before a new request; do not retry blindly.",
+                context: new System.Collections.Generic.Dictionary<string, object> { ["scriptExecuted"] = false, ["serviceProjectPath"] = path ?? "", ["cleanupError"] = cleanupError ?? "" });
+        }
+    }
+
+    private static void WriteStartupFailure(Exception ex)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(CortexEnvironment.Current.SupportReportsFolder);
+            System.IO.File.AppendAllText(System.IO.Path.Combine(CortexEnvironment.Current.SupportReportsFolder,
+                "startup-" + System.Diagnostics.Process.GetCurrentProcess().Id + ".log"), DateTime.UtcNow.ToString("o") + " " + ex + Environment.NewLine);
+        }
+        catch { System.Diagnostics.Trace.WriteLine(ex); }
     }
 
     private void LoadPort()
     {
-        try
-        {
-            string settingsPath = CortexEnvironment.Current.SettingsFilePath;
-            if (System.IO.File.Exists(settingsPath))
-            {
-                var json = System.IO.File.ReadAllText(settingsPath);
-                var settings = Newtonsoft.Json.JsonConvert.DeserializeObject<
-                    Newtonsoft.Json.Linq.JObject>(json);
-                var port = settings?["Port"]?.ToObject<int>();
-                if (port.HasValue && port.Value > 0 && port.Value <= 65535)
-                {
-                    _port = port.Value;
-                    System.Diagnostics.Trace.WriteLine(
-                        $"[RevitCortex] Port configured: {_port}");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.WriteLine(
-                $"[RevitCortex] Could not load port setting: {ex.Message}");
-        }
+        var overrideValue = Environment.GetEnvironmentVariable(CortexPort.EnvironmentVariable);
+        _port = CortexPort.ResolvePlugin(overrideValue, CortexEnvironment.Current.IsDev,
+            out var overridden, out _portWarning);
+        IsPortOverridden = overridden;
+        if (_portWarning != null) System.Diagnostics.Trace.WriteLine($"[RevitCortex] {_portWarning}");
+        System.Diagnostics.Trace.WriteLine(
+            $"[RevitCortex] Port configured: {_port} (process override: {IsPortOverridden})");
     }
 
     private void LoadReadOnlyMode()
@@ -516,7 +529,7 @@ public class RevitCortexApp : IExternalApplication
 
     private static void CleanupTempScripts()
     {
-        var scriptsFolder = CortexEnvironment.Current.ScriptsFolder;
+        var scriptsFolder = CortexEnvironment.Current.ProcessScriptsFolder;
         if (!System.IO.Directory.Exists(scriptsFolder)) return;
         foreach (var file in System.IO.Directory.GetFiles(scriptsFolder, "*.cs"))
         {

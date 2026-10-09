@@ -13,9 +13,51 @@ namespace RevitCortex.Core.Session;
 /// </summary>
 public class CortexSession
 {
+    public string InstanceId { get; } = Guid.NewGuid().ToString("N");
+    public Func<bool>? CanPrepareScript { get; set; }
+    public Func<bool, RevitCortex.Core.Results.CortexResult<object>>? EnsureServiceDocument { get; set; }
+    private string? _documentPath;
+    private bool _isServiceDocument;
+    private DateTime _snapshotUpdatedUtc;
+
+    public void UpdateDocumentMetadata(string? path, bool service)
+    {
+        lock (_documentContextLock) { _documentPath = path; _isServiceDocument = service; _snapshotUpdatedUtc = DateTime.UtcNow; }
+    }
+
+    // Only cached primitives: safe on the socket thread, even while the Revit UI is busy.
+    public Newtonsoft.Json.Linq.JObject ConnectionStatus()
+    {
+        lock (_documentContextLock)
+            return new Newtonsoft.Json.Linq.JObject
+            {
+                ["protocol"] = "RevitCortex/1", ["instanceId"] = InstanceId,
+                ["revitProcessId"] = System.Diagnostics.Process.GetCurrentProcess().Id,
+                ["bridgePort"] = BridgePort, ["documentGeneration"] = _documentContextGeneration,
+                ["documentPresent"] = Store.Get<object>("activeDocument") != null,
+                ["activeDocumentTitle"] = _documentTitle, ["activeDocumentPath"] = _documentPath,
+                ["isServiceDocument"] = _isServiceDocument,
+                ["snapshotUpdatedUtc"] = _snapshotUpdatedUtc.ToString("o"),
+                ["snapshotOnly"] = true,
+                ["buildId"] = RevitCortex.Core.Hosting.CortexBuild.Id,
+                ["coreModuleId"] = RevitCortex.Core.Hosting.CortexBuild.CoreModuleId
+            };
+    }
+
+    public bool MatchesTarget(Newtonsoft.Json.Linq.JObject? expected)
+    {
+        if (expected == null) return true; // Native/internal callers retain their existing contract.
+        lock (_documentContextLock)
+            return expected.Value<string>("instanceId") == InstanceId
+                && expected.Value<int?>("bridgePort") == BridgePort
+                && expected.Value<long?>("documentGeneration") == _documentContextGeneration;
+    }
+
     public ISessionStore Store { get; }
     public DocumentCapabilities Capabilities { get; private set; }
     public string DetectedLocale { get; private set; }
+    /// <summary>Actual plugin listener port; independent of the document store.</summary>
+    public int? BridgePort { get; set; }
 
     /// <summary>
     /// Tool-result cache. Always non-null. Plugin wires invalidation to Revit
@@ -30,6 +72,42 @@ public class CortexSession
     /// </summary>
     public long DocumentVersion => Interlocked.Read(ref _documentVersion);
     private long _documentVersion;
+    private readonly object _documentContextLock = new();
+    private long _documentContextGeneration;
+    private string? _documentTitle;
+
+    // Set on the Revit UI thread; background audit code reads only this string.
+    public void UpdateDocumentTitle(string? title)
+    {
+        lock (_documentContextLock) _documentTitle = title;
+    }
+
+    public readonly struct DocumentContext
+    {
+        public long Generation { get; }
+        public object? Document { get; }
+        public string? Title { get; }
+        public DocumentContext(long generation, object? document, string? title = null)
+        {
+            Generation = generation;
+            Document = document;
+            Title = title;
+        }
+    }
+
+    public DocumentContext CaptureDocumentContext()
+    {
+        lock (_documentContextLock)
+            return new(_documentContextGeneration, Store.Get<object>("activeDocument"), _documentTitle);
+    }
+
+    public bool IsCurrentDocumentContext(DocumentContext context)
+    {
+        lock (_documentContextLock)
+            // Lifecycle comparisons happen on the Revit UI thread. Worker threads
+            // compare only the generation and never invoke Document.Equals.
+            return context.Generation == _documentContextGeneration;
+    }
 
     /// <summary>
     /// Atomically increment <see cref="DocumentVersion"/>. Returns the new value.
@@ -48,7 +126,7 @@ public class CortexSession
     /// Confirmation callback for critical operations such as custom C# execution.
     /// Critical requests never consume the generic ApproveAll or AutoMode flags and
     /// fail closed when no callback exists. The Plugin callback may provide its own
-    /// explicit UI policy; the Revit 2026 fork uses a visible session-only 10-second
+    /// explicit UI policy; the Revit 2026 fork uses a visible session-only 3-second
     /// auto-run countdown inside that critical confirmation window.
     /// </summary>
     public Func<string, int, string?, bool?>? CriticalConfirmAction { get; set; }
@@ -111,15 +189,22 @@ public class CortexSession
         DetectedLocale = "en";
     }
 
-    public void Reinitialize(DocumentCapabilities capabilities, string locale)
+    public void Reinitialize(DocumentCapabilities capabilities, string locale, object? document = null)
     {
-        Store.Clear();
-        Capabilities = capabilities;
-        DetectedLocale = locale;
-
-        Cache.InvalidateAll();
-        BumpDocumentVersion();
-        AutoMode = false;
+        lock (_documentContextLock)
+        {
+            _documentContextGeneration++;
+            _documentTitle = null;
+            _documentPath = null; _isServiceDocument = false; _snapshotUpdatedUtc = DateTime.UtcNow;
+            Store.Clear();
+            Capabilities = capabilities;
+            DetectedLocale = locale;
+            Cache.InvalidateAll();
+            BumpDocumentVersion();
+            AutoMode = false;
+            ApproveAll = false;
+            if (document != null) Store.Set("activeDocument", document);
+        }
     }
 
     /// <summary>
@@ -137,6 +222,15 @@ public class CortexSession
         int elementCount,
         string? description = null,
         bool critical = false)
+    {
+        var request = ToolRequestLifetime.Current;
+        request?.BeginConfirmation();
+        var approved = RequestConfirmationCore(action, elementCount, description, critical);
+        request?.FinishConfirmation();
+        return approved;
+    }
+
+    private bool RequestConfirmationCore(string action, int elementCount, string? description, bool critical)
     {
         if (elementCount <= 0) return true;
 
