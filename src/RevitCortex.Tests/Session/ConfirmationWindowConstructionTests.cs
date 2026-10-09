@@ -26,7 +26,8 @@ public class ConfirmationWindowConstructionTests
                 var normalAuto = (CheckBox)ordinary.FindName("AutoRunCheckBox");
                 var criticalAuto = (CheckBox)critical.FindName("AutoApproveCheckBox");
                 Assert.True(normalAuto.IsChecked);
-                Assert.False(criticalAuto.IsChecked);
+                Assert.True(criticalAuto.IsChecked);
+                criticalAuto.IsChecked = false; // User opt-out stays independent from ordinary auto-run.
                 Assert.Single(Descendants(ordinary).OfType<Button>());
                 Assert.Equal(2, Descendants(critical).OfType<Button>().Count());
 
@@ -64,7 +65,7 @@ public class ConfirmationWindowConstructionTests
                     }
                     if (critical != null)
                     {
-                        ((CheckBox)critical.FindName("AutoApproveCheckBox")).IsChecked = false;
+                        ((CheckBox)critical.FindName("AutoApproveCheckBox")).IsChecked = true;
                         critical.Close();
                     }
                 }

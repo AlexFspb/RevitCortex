@@ -1,5 +1,7 @@
 # RevitCortex 2026 — Security Model
 
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8082 → 8890; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Critical C# auto-run now defaults to ON at each Revit launch, independently of ordinary auto-run; both retain the visible 3-second countdown, cancellation and process-local opt-out. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+
 This document describes the current security behavior of the **Autodesk Revit 2026** fork.
 
 ## Scope
@@ -58,7 +60,7 @@ preference for the next request. The preference is not written to settings.json.
 The old two-minute/unlimited UI choices and floating Auto mode ON window are
 removed. Legacy Core approval flags remain for compatibility; this UI never
 arms them. Normal approval returns true only for the current request. Critical
-custom-C# confirmation remains separate: Yes/No and opt-in session auto-run.
+custom-C# confirmation remains separate: Yes/No and default-on session auto-run.
 
 ---
 

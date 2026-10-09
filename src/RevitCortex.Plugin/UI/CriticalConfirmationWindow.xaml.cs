@@ -24,9 +24,9 @@ public partial class CriticalConfirmationWindow : Window
 
     /// <summary>
     /// Session-scoped preference. It intentionally is not written to settings.json.
-    /// Revit restart returns the dialog to manual approval mode.
+    /// Revit restart restores default-on auto-run; unchecking applies only to this process.
     /// </summary>
-    public static bool AutoApproveEnabled { get; private set; }
+    public static bool AutoApproveEnabled { get; private set; } = true;
 
     public CriticalConfirmationWindow(string action, int elementCount, string? description)
     {

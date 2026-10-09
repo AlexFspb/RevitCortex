@@ -1,5 +1,7 @@
 # RevitCortex 2026 — AI Assistant / Developer Guide
 
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8082 → 8890; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Critical C# auto-run now defaults to ON at each Revit launch, independently of ordinary auto-run; both retain the visible 3-second countdown, cancellation and process-local opt-out. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+
 This file is the fork-specific source of truth for AI-assisted development.
 
 ## Fork scope
@@ -147,7 +149,7 @@ The dialog offers:
 
 - **Yes** — approve now
 - **No** — cancel
-- **Allow auto-run** — session-only optional automatic approval
+- **Allow auto-run** — session-only automatic approval, enabled by default at Revit startup
 
 When `Allow auto-run` is enabled, the Yes action displays a visible **3-second countdown**. At zero, the current script is automatically approved. The user can still press Yes or No during the countdown.
 
@@ -215,7 +217,7 @@ Maintain these controls:
 - localhost bridge behavior;
 - explicit confirmation semantics for destructive/critical operations.
 
-Default-on ordinary auto-run with a 3-second countdown is an intentional product decision for autonomous MCP work. Agents must not disable it or lengthen either the ordinary or critical C# 3-second countdown. Critical C# retains its separate agreed Yes/No and opt-in auto-run controls. Sandbox validation, read-only enforcement, disabled-tool restrictions and auditing remain mandatory. Do not add a separate chat-approval step for send_code_to_revit within the user-authorized task.
+Default-on ordinary auto-run with a 3-second countdown is an intentional product decision for autonomous MCP work. Agents must not disable it or lengthen either the ordinary or critical C# 3-second countdown. Critical C# retains its separate agreed Yes/No and default-on auto-run controls. Sandbox validation, read-only enforcement, disabled-tool restrictions and auditing remain mandatory. Do not add a separate chat-approval step for send_code_to_revit within the user-authorized task.
 
 ## Documentation source of truth
 

@@ -13,6 +13,7 @@ using RevitCortex.Plugin.Threading;
 using RevitCortex.Plugin.UI;
 using System;
 using System.Reflection;
+using System.Linq;
 
 namespace RevitCortex.Plugin;
 
@@ -24,6 +25,8 @@ public class RevitCortexApp : IExternalApplication
     private DocumentChangeWatcher? _cacheWatcher;
     private UIApplication? _uiApplication;
     private int _port = CortexPort.PrimaryPort;
+    private readonly StartupAttempt _autoStart = new();
+    private Document? _serviceDocument;
     private Autodesk.Revit.UI.PushButton? _connectButton;
 
     private bool _updateNotificationShown;
@@ -77,6 +80,7 @@ public class RevitCortexApp : IExternalApplication
             _session = new CortexSession(store);
             _session.ConfirmAction = ConfirmationHelper.Confirm;
             _session.CriticalConfirmAction = ConfirmationHelper.ConfirmCritical;
+            _session.EnsureServiceDocument = EnsureServiceDocument;
             var analyzer = new DocumentAnalyzer();
 
             var auditLogger = new AuditLogger(CortexEnvironment.Current.AuditLogPath);
@@ -96,6 +100,7 @@ public class RevitCortexApp : IExternalApplication
             var externalEvent = ExternalEvent.Create(executionHandler);
             var dispatcher = new RevitThreadDispatcher(executionHandler, externalEvent);
             _router.SetDispatcher(dispatcher);
+            _session.CanPrepareScript = () => !_router.DisabledTools.Contains("send_code_to_revit");
 
             LoadDisabledTools();
             LoadReadOnlyMode();
@@ -204,6 +209,7 @@ public class RevitCortexApp : IExternalApplication
 
     public void StopService()
     {
+        _autoStart.Suppress();
         _pbiSelectListener?.Stop();
         _pbiSelectListener = null;
         _socketService?.Stop();
@@ -330,6 +336,7 @@ public class RevitCortexApp : IExternalApplication
                     $"[RevitCortex] Active document synchronized: {doc?.Title ?? "(none)"}");
             }
             _session?.UpdateDocumentTitle(doc?.Title);
+            _session?.UpdateDocumentMetadata(doc?.PathName, doc != null && _serviceDocument?.IsValidObject == true && object.Equals(doc, _serviceDocument));
         }
         catch (Exception ex)
         {
@@ -362,6 +369,16 @@ public class RevitCortexApp : IExternalApplication
 
         // Runs after close completes OR is cancelled, and handles an empty Revit.
         SynchronizeActiveDocument();
+        if (_autoStart.Take())
+        {
+            try { StartService(); }
+            catch (Exception ex)
+            {
+                WriteStartupFailure(ex);
+                _portWarning = "Cortex could not start automatically: " + ex.Message + ". Use Cortex Switch to retry.";
+                UpdateConnectionButtonIcon();
+            }
+        }
         if (_portWarning != null)
         {
             var warning = _portWarning;
@@ -399,6 +416,59 @@ public class RevitCortexApp : IExternalApplication
     private void OnViewActivated(object? sender, ViewActivatedEventArgs e)
     {
         SynchronizeActiveDocument();
+    }
+
+    private RevitCortex.Core.Results.CortexResult<object> EnsureServiceDocument(bool requireEmpty)
+    {
+        var ui = _uiApplication;
+        if (ui == null || _session == null)
+            return RevitCortex.Core.Results.CortexResult<object>.Fail(RevitCortex.Core.Results.CortexErrorCode.InvalidInput, "Revit is not ready.");
+        if (ui.ActiveUIDocument != null)
+        {
+            if (requireEmpty) return new RevitCortex.Core.Session.DocumentContextChangedException().ToResult();
+            SynchronizeActiveDocument();
+            return RevitCortex.Core.Results.CortexResult<object>.Ok(_session.ConnectionStatus());
+        }
+        string? path = null;
+        Document? seed = null;
+        try
+        {
+            var folder = System.IO.Path.Combine(CortexEnvironment.Current.RootFolder, "service-projects", _session.InstanceId);
+            System.IO.Directory.CreateDirectory(folder);
+            path = System.IO.Path.Combine(folder, "Cortex-service-" + System.Diagnostics.Process.GetCurrentProcess().Id + "-" + Guid.NewGuid().ToString("N") + ".rvt");
+            seed = ui.Application.NewProjectDocument(UnitSystem.Metric);
+            using (var options = new SaveAsOptions { OverwriteExistingFile = false }) seed.SaveAs(path, options);
+            if (!seed.Close(false)) throw new InvalidOperationException("Could not close the newly created background service project.");
+            seed = null;
+            // Never replace a document opened by another callback while creating the seed.
+            if (ui.ActiveUIDocument != null) throw new InvalidOperationException("A document became active during service-project creation. The script has not run.");
+            _serviceDocument = ui.OpenAndActivateDocument(path).Document;
+            SynchronizeActiveDocument();
+            var response = _session.ConnectionStatus();
+            response["serviceDocumentCreated"] = true;
+            return RevitCortex.Core.Results.CortexResult<object>.Ok(response);
+        }
+        catch (Exception ex)
+        {
+            string? cleanupError = null;
+            if (seed != null) { try { if (!seed.Close(false)) cleanupError = "Close returned false"; } catch (Exception close) { cleanupError = close.Message; } }
+            WriteStartupFailure(ex);
+            return RevitCortex.Core.Results.CortexResult<object>.Fail(RevitCortex.Core.Results.CortexErrorCode.Unknown,
+                "Service project preparation failed. The script was not executed: " + ex.Message,
+                suggestion: "Inspect Revit state before a new request; do not retry blindly.",
+                context: new System.Collections.Generic.Dictionary<string, object> { ["scriptExecuted"] = false, ["serviceProjectPath"] = path ?? "", ["cleanupError"] = cleanupError ?? "" });
+        }
+    }
+
+    private static void WriteStartupFailure(Exception ex)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(CortexEnvironment.Current.SupportReportsFolder);
+            System.IO.File.AppendAllText(System.IO.Path.Combine(CortexEnvironment.Current.SupportReportsFolder,
+                "startup-" + System.Diagnostics.Process.GetCurrentProcess().Id + ".log"), DateTime.UtcNow.ToString("o") + " " + ex + Environment.NewLine);
+        }
+        catch { System.Diagnostics.Trace.WriteLine(ex); }
     }
 
     private void LoadPort()
@@ -459,7 +529,7 @@ public class RevitCortexApp : IExternalApplication
 
     private static void CleanupTempScripts()
     {
-        var scriptsFolder = CortexEnvironment.Current.ScriptsFolder;
+        var scriptsFolder = CortexEnvironment.Current.ProcessScriptsFolder;
         if (!System.IO.Directory.Exists(scriptsFolder)) return;
         foreach (var file in System.IO.Directory.GetFiles(scriptsFolder, "*.cs"))
         {

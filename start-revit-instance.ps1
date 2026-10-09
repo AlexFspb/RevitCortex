@@ -27,6 +27,6 @@ if ($PSCmdlet.ShouldProcess($RevitPath, "Start Revit with Cortex port $Port")) {
     # Set only the child's environment: no setx, settings.json edits or parent changes.
     $startInfo.EnvironmentVariables['REVITCORTEX_PORT'] = $Port.ToString([System.Globalization.CultureInfo]::InvariantCulture)
     $revitProcess = [System.Diagnostics.Process]::Start($startInfo)
-    Write-Host "Started Revit PID $($revitProcess.Id) with Cortex port $Port. Open a project and enable Cortex Switch."
+    Write-Host "Started Revit PID $($revitProcess.Id) with Cortex port $Port. Cortex starts automatically after Revit is ready; no project is required for connection status."
     $revitProcess.Dispose()
 }

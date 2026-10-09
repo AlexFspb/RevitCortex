@@ -169,6 +169,7 @@ public class CortexRouter
             context.Generation, summary, codeHash);
         CortexResult<object> response;
         try { response = RouteCore(toolName, input, context); }
+        catch (DocumentContextChangedException ex) { response = ex.ToResult(); }
         catch (ConfirmationFailedException ex) { response = ex.ToResult(); }
         catch (Exception ex)
         {
@@ -182,6 +183,8 @@ public class CortexRouter
 
     private CortexResult<object> RouteCore(string toolName, JObject input, CortexSession.DocumentContext documentContext)
     {
+        if (!_session.MatchesTarget(input["_cortexExpected"] as JObject))
+            return new DocumentContextChangedException().ToResult();
         var documentVersion = _session.DocumentVersion;
         if (!_tools.TryGetValue(toolName, out var tool))
             return CortexResult<object>.Fail(CortexErrorCode.InvalidInput,
@@ -192,6 +195,9 @@ public class CortexRouter
             return CortexResult<object>.Fail(CortexErrorCode.InvalidInput,
                 $"Tool '{toolName}' is disabled",
                 suggestion: "Enable it in RevitCortex Settings > Tools");
+
+        // Cached primitives only; still honor tool registration and disabled-tool settings.
+        if (toolName == "get_connection_status") return CortexResult<object>.Ok(_session.ConnectionStatus());
 
         if (tool.RequiresDocument && documentContext.Document == null)
             return CortexResult<object>.Fail(CortexErrorCode.InvalidInput,
@@ -268,7 +274,7 @@ public class CortexRouter
             // Nothing may escape Route as a raw exception.
             System.Diagnostics.Trace.WriteLine(
                 $"[RevitCortex] Route('{toolName}') unhandled: {ex}");
-            result = ex is ConfirmationFailedException confirmation ? confirmation.ToResult() : CortexResult<object>.Fail(CortexErrorCode.Unknown,
+            result = ex is DocumentContextChangedException changed ? changed.ToResult() : ex is ConfirmationFailedException confirmation ? confirmation.ToResult() : CortexResult<object>.Fail(CortexErrorCode.Unknown,
                 $"Unhandled exception: {ex.Message}",
                 suggestion: "Retry; if it persists, send a support report from the RevitCortex ribbon.");
         }

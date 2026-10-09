@@ -1,5 +1,7 @@
 # RevitCortex — Autodesk Revit 2026 Fork
 
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8082 → 8890; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Critical C# auto-run now defaults to ON at each Revit launch, independently of ordinary auto-run; both retain the visible 3-second countdown, cancellation and process-local opt-out. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+
 > **Scope of this fork: Autodesk Revit 2026 only.**
 >
 > Revit 2023, 2024, 2025 and 2027 plugin targets were intentionally removed so development, testing, installation and release packaging can focus on **Revit 2026 / .NET 8**.
@@ -60,7 +62,7 @@ checkbox, enabled by default at Revit startup. Each request counts down for
 3 seconds. Uncheck it to wait for manual approval; X or Escape cancels the current
 request. The choice lasts only for this process. The old two-minute/unlimited
 approval menu and floating Auto mode ON window are removed. This setting is
-independent of the custom-C# window described below, which remains opt-in.
+independent of the custom-C# window described below, which also defaults to on.
 
 `send_code_to_revit` remains a last-resort feature for operations that are not covered by a dedicated RevitCortex tool.
 
@@ -70,12 +72,12 @@ For the final critical confirmation, this fork adds a dedicated Revit window wit
 
 - **Yes** — approve immediately;
 - **No** — cancel;
-- **Allow auto-run** — optional session-only automatic approval;
+- **Allow auto-run** — session-only automatic approval, enabled by default at Revit startup;
 - a visible **3-second countdown** on the Yes action when auto-run is enabled;
 - automatic approval when the countdown reaches zero;
 - manual Yes/No available at all times during the countdown.
 
-`Allow auto-run` is intentionally **not persisted** to `settings.json`. It resets when Revit closes.
+`Allow auto-run` is intentionally **not persisted** to `settings.json`. It resets to enabled on the next Revit launch.
 
 ## Safety model
 

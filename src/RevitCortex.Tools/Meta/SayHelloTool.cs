@@ -19,16 +19,12 @@ public class SayHelloTool : ICortexTool
         // Runs through ExternalEvent on Revit's UI thread, including without a document.
         var document = session.Store.Get<Autodesk.Revit.DB.Document>("activeDocument");
 
-        return CortexResult<object>.Ok(new
-        {
-            message,
-            locale = session.DetectedLocale,
-            toolCount = "RevitCortex is running",
-            revitProcessId = System.Diagnostics.Process.GetCurrentProcess().Id,
-            bridgePort = session.BridgePort,
-            buildId = RevitCortex.Core.Hosting.CortexBuild.Id,
-            coreModuleId = RevitCortex.Core.Hosting.CortexBuild.CoreModuleId,
-            activeDocumentTitle = document?.IsValidObject == true ? document.Title : null
-        });
+        session.UpdateDocumentTitle(document?.IsValidObject == true ? document.Title : null);
+        var identity = session.ConnectionStatus();
+        identity["message"] = message;
+        identity["locale"] = session.DetectedLocale;
+        identity["snapshotOnly"] = false;
+        return CortexResult<object>.Ok(identity);
+
     }
 }

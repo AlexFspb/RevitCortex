@@ -9,6 +9,30 @@ namespace RevitCortex.Tests.Communication;
 
 public class SocketServicePortSelectionTests
 {
+    [Fact]
+    public async Task FourConcurrentListenersUseAllCandidatesAndFifthFails()
+    {
+        var reservations = Enumerable.Range(0, 4).Select(_ => new TcpListener(IPAddress.Loopback, 0)).ToArray();
+        int[] ports;
+        try
+        {
+            foreach (var listener in reservations) listener.Start();
+            ports = reservations.Select(l => ((IPEndPoint)l.LocalEndpoint).Port).ToArray();
+        }
+        finally { foreach (var listener in reservations) listener.Stop(); }
+        var services = Enumerable.Range(0, 5).Select(_ => CreateService()).ToArray();
+        try
+        {
+            var assigned = await Task.WhenAll(services.Take(4).Select(s => Task.Run(() => s.StartOnFirstAvailablePort(ports))));
+            Assert.Equal(ports.OrderBy(p => p), assigned.OrderBy(p => p));
+            Assert.Throws<InvalidOperationException>(() => services[4].StartOnFirstAvailablePort(ports));
+            Assert.False(services[4].IsRunning);
+            foreach (var service in services) service.Stop();
+            for (var i = 0; i < 4; i++) Assert.Equal(assigned[i], services[i].StartOnFirstAvailablePort(ports.Reverse().ToArray()));
+        }
+        finally { foreach (var service in services) service.Stop(); }
+    }
+
     private sealed class FailingService(bool threadFailure) : SocketService(
         new CortexRouter(new CortexSession(new SessionStore()), new Router.FakeAnalyzer()))
     {

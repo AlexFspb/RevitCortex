@@ -10,7 +10,7 @@ public class CortexPortTests
     [InlineData(true, 8081, 8889)]
     public void ProfilePairsAndInvalidPluginOverrides_FallBackWithoutThrowing(bool dev, int first, int second)
     {
-        Assert.Equal(new[] { first, second }, CortexPort.AutomaticPorts(dev));
+        Assert.Equal(dev ? new[] { first, second, 8083, 8891 } : new[] { first, second, 8082, 8890 }, CortexPort.AutomaticPorts(dev));
         foreach (var invalid in new[] { "0", "-1", "65536", "oops", "8080.5" })
         {
             Assert.Equal(first, CortexPort.ResolvePlugin(invalid, dev, out var overridden, out var warning));

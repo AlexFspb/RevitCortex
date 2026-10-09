@@ -23,6 +23,8 @@ public class CortexEnvironment
     public string TelemetryQueuePath => Path.Combine(RootFolder, "telemetry-queue.jsonl");
     public string SupportReportsFolder => Path.Combine(RootFolder, "support-reports");
     public string ScriptsFolder => Path.Combine(RootFolder, "scripts");
+    public string ProcessScriptsFolder => Path.Combine(ScriptsFolder, "process-" + System.Diagnostics.Process.GetCurrentProcess().Id + "-" + ProcessRunId);
+    private static readonly string ProcessRunId = Guid.NewGuid().ToString("N");
 
     private CortexEnvironment(string profileName, bool isDev, string rootFolder,
         int defaultPort, string defaultTelemetryEndpoint)

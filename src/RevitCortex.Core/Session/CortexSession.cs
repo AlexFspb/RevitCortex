@@ -13,6 +13,46 @@ namespace RevitCortex.Core.Session;
 /// </summary>
 public class CortexSession
 {
+    public string InstanceId { get; } = Guid.NewGuid().ToString("N");
+    public Func<bool>? CanPrepareScript { get; set; }
+    public Func<bool, RevitCortex.Core.Results.CortexResult<object>>? EnsureServiceDocument { get; set; }
+    private string? _documentPath;
+    private bool _isServiceDocument;
+    private DateTime _snapshotUpdatedUtc;
+
+    public void UpdateDocumentMetadata(string? path, bool service)
+    {
+        lock (_documentContextLock) { _documentPath = path; _isServiceDocument = service; _snapshotUpdatedUtc = DateTime.UtcNow; }
+    }
+
+    // Only cached primitives: safe on the socket thread, even while the Revit UI is busy.
+    public Newtonsoft.Json.Linq.JObject ConnectionStatus()
+    {
+        lock (_documentContextLock)
+            return new Newtonsoft.Json.Linq.JObject
+            {
+                ["protocol"] = "RevitCortex/1", ["instanceId"] = InstanceId,
+                ["revitProcessId"] = System.Diagnostics.Process.GetCurrentProcess().Id,
+                ["bridgePort"] = BridgePort, ["documentGeneration"] = _documentContextGeneration,
+                ["documentPresent"] = Store.Get<object>("activeDocument") != null,
+                ["activeDocumentTitle"] = _documentTitle, ["activeDocumentPath"] = _documentPath,
+                ["isServiceDocument"] = _isServiceDocument,
+                ["snapshotUpdatedUtc"] = _snapshotUpdatedUtc.ToString("o"),
+                ["snapshotOnly"] = true,
+                ["buildId"] = RevitCortex.Core.Hosting.CortexBuild.Id,
+                ["coreModuleId"] = RevitCortex.Core.Hosting.CortexBuild.CoreModuleId
+            };
+    }
+
+    public bool MatchesTarget(Newtonsoft.Json.Linq.JObject? expected)
+    {
+        if (expected == null) return true; // Native/internal callers retain their existing contract.
+        lock (_documentContextLock)
+            return expected.Value<string>("instanceId") == InstanceId
+                && expected.Value<int?>("bridgePort") == BridgePort
+                && expected.Value<long?>("documentGeneration") == _documentContextGeneration;
+    }
+
     public ISessionStore Store { get; }
     public DocumentCapabilities Capabilities { get; private set; }
     public string DetectedLocale { get; private set; }
@@ -155,6 +195,7 @@ public class CortexSession
         {
             _documentContextGeneration++;
             _documentTitle = null;
+            _documentPath = null; _isServiceDocument = false; _snapshotUpdatedUtc = DateTime.UtcNow;
             Store.Clear();
             Capabilities = capabilities;
             DetectedLocale = locale;

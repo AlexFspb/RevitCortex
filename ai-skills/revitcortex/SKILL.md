@@ -5,6 +5,8 @@ description: Use for RevitCortex 2026 operations, MCP tool workflows, Revit mode
 
 # RevitCortex 2026 Skill Router
 
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8082 → 8890; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Critical C# auto-run now defaults to ON at each Revit launch, independently of ordinary auto-run; both retain the visible 3-second countdown, cancellation and process-local opt-out. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+
 This fork supports **Autodesk Revit 2026 only**. Do not apply upstream R23/R24/R25/R27 build instructions to this repository.
 
 ## Always-on rules
@@ -42,7 +44,7 @@ Its auto-run checkbox defaults to on at Revit startup and counts down for 3 seco
 on each request. X/Escape cancels. This preference is independent of critical C#
 auto-run below. The old two-minute/unlimited menu and floating Auto mode UI are gone.
 
-Critical C# execution uses the RevitCortex confirmation window. `Allow auto-run` is optional and session-only. When enabled, a visible **3-second countdown** auto-approves the script unless the user presses No or closes the dialog. The setting resets when Revit closes.
+Critical C# execution uses the RevitCortex confirmation window. `Allow auto-run` is enabled by default at every Revit startup and remains session-only. Unchecking disables it for this process. When enabled, a visible **3-second countdown** auto-approves the script unless the user presses No or closes the dialog. The setting resets to enabled on the next Revit launch.
 
 This does not disable sandbox validation, audit logging, read-only protection, or the rule to prefer dedicated tools.
 
@@ -58,4 +60,4 @@ This does not disable sandbox validation, audit logging, read-only protection, o
 - `index_40_Tool_Signature_Index.md`: quick tool-signature lookup; `tool-schemas.txt` is canonical.
 - `index_41_Workflow_Source_Map.md`: workflow source map.
 
-Document closure no longer stops an enabled Cortex server. Background families do not replace the active UI document. If no project is active, open a project; do not toggle the server unnecessarily. A command cancelled because its document changed must not be blindly retried: verify the active project first.
+Document closure no longer stops an enabled Cortex server. Background families do not replace the active UI document. With no active document, inspect get_connection_status or say_hello. The first C# request can prepare a service project; never substitute it for a named working project. A command cancelled because its document changed must not be blindly retried: verify the active project first.

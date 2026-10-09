@@ -18,6 +18,7 @@ public sealed class ToolRequestLifetime
     public string Phase { get { lock (_gate) return _phase; } }
     public bool IsExpired { get { lock (_gate) return _expiredPhase != null; } }
     public Task<CortexResult<object>> Completion => _completion.Task;
+    public Func<bool>? ContextIsValid { get; set; }
     public IntPtr OwnerHandle { get; set; } // Captured from UIApplication on the Revit UI thread.
     [ThreadStatic] private static ToolRequestLifetime? _current;
     public static ToolRequestLifetime? Current => _current;
@@ -52,6 +53,7 @@ public sealed class ToolRequestLifetime
     {
         // Linearization point: timeout wins => no permission to run after the dialog.
         // Approval wins => a subsequent timeout must report that execution may continue.
+        if (ContextIsValid?.Invoke() == false) throw new DocumentContextChangedException();
         lock (_gate) { ThrowIfExpired(); _phase = "executing"; }
     }
 

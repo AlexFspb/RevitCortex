@@ -13,8 +13,8 @@ public static class CortexPort
     public const int DevSecondaryPort = 8889;
 
     public static int[] AutomaticPorts(bool isDev) => isDev
-        ? new[] { DevPrimaryPort, DevSecondaryPort }
-        : new[] { PrimaryPort, SecondaryPort };
+        ? new[] { DevPrimaryPort, DevSecondaryPort, 8083, 8891 }
+        : new[] { PrimaryPort, SecondaryPort, 8082, 8890 };
 
     public static int ResolvePlugin(string? value, bool isDev, out bool overridden, out string? warning)
     {
@@ -29,7 +29,7 @@ public static class CortexPort
         {
             overridden = false;
             var ports = AutomaticPorts(isDev);
-            warning = $"{ex.Message} Using automatic ports {ports[0]}/{ports[1]}.";
+            warning = $"{ex.Message} Using automatic ports {string.Join("/", ports)}.";
             return ports[0];
         }
     }

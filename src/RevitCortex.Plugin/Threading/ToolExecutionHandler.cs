@@ -44,13 +44,18 @@ public class ToolExecutionHandler : IExternalEventHandler
             {
                 request.OwnerHandle = app?.MainWindowHandle ?? IntPtr.Zero;
                 using var scope = request.Enter();
-                var valid = session.IsCurrentDocumentContext(context);
+                session.Store.Set("uiApplication", app!);
+                request.ContextIsValid = () => session.IsCurrentDocumentContext(context)
+                    && session.MatchesTarget(input["_cortexExpected"] as JObject)
+                    && (!tool.RequiresDocument || IsActiveDocument(app!, context.Document));
+                var valid = request.ContextIsValid();
                 if (valid && tool.RequiresDocument) valid = IsActiveDocument(app!, context.Document);
                 result = valid ? tool.Execute(input, session) : CortexResult<object>.Fail(CortexErrorCode.Cancelled,
                     "The active document was closed or changed while this command was waiting. Nothing was executed.",
                     suggestion: "Verify the active project before issuing a new request; do not retry automatically.");
             }
         }
+        catch (DocumentContextChangedException ex) { result = ex.ToResult(); }
         catch (ConfirmationExpiredException ex) { result = ex.ToResult(); }
         catch (ConfirmationFailedException ex) { result = ex.ToResult(); }
         catch (Exception ex) { result = CortexResult<object>.Fail(CortexErrorCode.Unknown, $"Unhandled exception: {ex.Message}"); }
