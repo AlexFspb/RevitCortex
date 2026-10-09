@@ -21,13 +21,13 @@ public class ConnectionIdentityTests
     [Fact]
     public void SnapshotWorksWithoutDocumentAndNeverContainsNativeObject()
     {
-        var s = new CortexSession(new SessionStore()) { BridgePort = 8082 };
+        var s = new CortexSession(new SessionStore()) { BridgePort = 8880 };
         var router = new CortexRouter(s, new Router.FakeAnalyzer());
         router.RegisterTool(new RevitCortex.Tools.Meta.GetConnectionStatusTool());
         var response = router.Route("get_connection_status", new JObject());
         Assert.True(response.Success);
         var status = Assert.IsType<JObject>(response.Data);
-        Assert.Equal(8082, status.Value<int>("bridgePort"));
+        Assert.Equal(8880, status.Value<int>("bridgePort"));
         Assert.False(status.Value<bool>("documentPresent"));
         Assert.True(status.Value<bool>("snapshotOnly"));
         Assert.True(status.Value<int>("revitProcessId") > 0);

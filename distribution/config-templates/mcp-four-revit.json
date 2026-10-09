@@ -12,16 +12,16 @@
         "REVITCORTEX_PORT": "8888"
       }
     },
-    "revitcortex_8082": {
+    "revitcortex_8880": {
       "command": "C:\\Users\\YOUR_NAME\\.revitcortex\\server\\RevitCortex.Server.exe",
       "env": {
-        "REVITCORTEX_PORT": "8082"
+        "REVITCORTEX_PORT": "8880"
       }
     },
-    "revitcortex_8890": {
+    "revitcortex_8088": {
       "command": "C:\\Users\\YOUR_NAME\\.revitcortex\\server\\RevitCortex.Server.exe",
       "env": {
-        "REVITCORTEX_PORT": "8890"
+        "REVITCORTEX_PORT": "8088"
       }
     }
   }

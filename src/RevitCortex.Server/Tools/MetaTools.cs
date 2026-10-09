@@ -16,7 +16,7 @@ public static class MetaTools
         { return new JObject { ["configuredPort"] = revit.Port, ["status"] = "unavailable", ["message"] = ex.Message }.ToString(); }
     }
 
-    [McpServerTool(Name = "list_revit_instances"), Description("Discover Cortex on four Release ports (8080,8888,8082,8890), four Dev ports (8081,8889,8083,8891) and this connection's port. Returns cached port/PID/document/service-project metadata, or unavailable. Read-only; never changes the current connection. Use the separately configured MCP connection for the user's requested port.")]
+    [McpServerTool(Name = "list_revit_instances"), Description("Discover Cortex on four Release ports (8080,8888,8880,8088), four Dev ports (8081,8889,8083,8891) and this connection's port. Returns cached port/PID/document/service-project metadata, or unavailable. Read-only; never changes the current connection. Use the separately configured MCP connection for the user's requested port.")]
     public static async Task<string> ListRevitInstances(RevitConnectionManager revit,
         [Description("Optional explicit ports to inspect, at most 16. Default: known Cortex ports plus this connection.")] int[]? ports = null, CancellationToken ct = default) =>
         (await revit.DiscoverAsync(ports, ct)).ToString();

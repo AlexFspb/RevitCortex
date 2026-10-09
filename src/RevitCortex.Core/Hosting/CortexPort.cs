@@ -14,7 +14,7 @@ public static class CortexPort
 
     public static int[] AutomaticPorts(bool isDev) => isDev
         ? new[] { DevPrimaryPort, DevSecondaryPort, 8083, 8891 }
-        : new[] { PrimaryPort, SecondaryPort, 8082, 8890 };
+        : new[] { PrimaryPort, SecondaryPort, 8880, 8088 };
 
     public static int ResolvePlugin(string? value, bool isDev, out bool overridden, out string? warning)
     {
