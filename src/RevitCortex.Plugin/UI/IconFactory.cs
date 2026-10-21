@@ -18,8 +18,10 @@ public static class IconFactory
 
     /// <summary>Connection icon: lightning bolt. Green when active, gray when stopped.</summary>
     public static BitmapSource CreateConnectionIcon(int size, bool isActive = false)
+        => CreateConnectionIcon(size, isActive ? ActiveGreen : InactiveGray);
+
+    public static BitmapSource CreateConnectionIcon(int size, Color bg)
     {
-        var bg = isActive ? ActiveGreen : InactiveGray;
         return CreateIconWithDrawing(size, bg, (dc, s) =>
         {
             double m = s * 0.2;

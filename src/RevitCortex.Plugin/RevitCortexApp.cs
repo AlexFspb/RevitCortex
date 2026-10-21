@@ -29,6 +29,20 @@ public class RevitCortexApp : IExternalApplication
     private Document? _serviceDocument;
     private Autodesk.Revit.UI.PushButton? _connectButton;
 
+    private readonly AutomaticExecutionPolicy _automaticExecution = new();
+    private Autodesk.Revit.UI.PushButton? _automaticButton;
+    private RibbonActivityIndicator? _activity;
+    private bool _displayedServiceRunning;
+    public bool AutomaticExecutionEnabled => _automaticExecution.Enabled;
+    public event Action? AutomaticExecutionChanged;
+    internal bool? DecideConfirmation(Func<bool?> manual) => _automaticExecution.Decide(manual);
+    public void SetAutomaticExecution(bool enabled)
+    {
+        _automaticExecution.SetEnabled(enabled);
+        UpdateAutomaticButton();
+        AutomaticExecutionChanged?.Invoke();
+    }
+
     private bool _updateNotificationShown;
     private string? _portWarning;
     private PbiSelectHttpListener? _pbiSelectListener;
@@ -96,7 +110,8 @@ public class RevitCortexApp : IExternalApplication
 
             _router.RegisterToolsFromAssembly(Assembly.GetExecutingAssembly());
 
-            var executionHandler = new ToolExecutionHandler(auditLogger);
+            _activity = new RibbonActivityIndicator(UpdateConnectionButtonIcon);
+            var executionHandler = new ToolExecutionHandler(auditLogger, _activity.Begin, _activity.End);
             var externalEvent = ExternalEvent.Create(executionHandler);
             var dispatcher = new RevitThreadDispatcher(executionHandler, externalEvent);
             _router.SetDispatcher(dispatcher);
@@ -111,7 +126,7 @@ public class RevitCortexApp : IExternalApplication
             _pbiActionHandler = new PbiActionEventHandler();
             _pbiActionEvent = ExternalEvent.Create(_pbiActionHandler);
 
-            _socketService = new SocketService(_router, _port);
+            _socketService = new SocketService(_router, _port, port => { _port = port; _session.BridgePort = port; });
 
             application.ControlledApplication.DocumentOpened += OnDocumentOpened;
             application.ControlledApplication.DocumentClosing += OnDocumentClosing;
@@ -141,6 +156,7 @@ public class RevitCortexApp : IExternalApplication
     {
         try
         {
+            _activity?.Dispose();
             Telemetry.TelemetryBootstrap.Shutdown();
 
             _pbiSelectListener?.Dispose();
@@ -242,12 +258,31 @@ public class RevitCortexApp : IExternalApplication
     private void UpdateConnectionButtonIcon()
     {
         if (_connectButton == null) return;
-        bool active = IsServiceRunning;
-        _connectButton.Image = IconFactory.CreateConnectionIcon(16, active);
-        _connectButton.LargeImage = IconFactory.CreateConnectionIcon(32, active);
-        _connectButton.ToolTip = active
+        // Rendering must not probe TCP or stop the listener.
+        bool active = _socketService?.IsRunning == true;
+        _displayedServiceRunning = active;
+        var tool = _activity?.ToolName;
+        var busy = tool != null;
+        var color = busy
+            ? (tool == "send_code_to_revit" ? System.Windows.Media.Colors.DarkOrange : System.Windows.Media.Colors.DodgerBlue)
+            : (active ? System.Windows.Media.Color.FromRgb(46, 125, 50) : System.Windows.Media.Colors.DimGray);
+        if (busy && _activity!.Dimmed)
+            color = System.Windows.Media.Color.FromRgb((byte)(color.R * .65), (byte)(color.G * .65), (byte)(color.B * .65));
+        _connectButton.Image = IconFactory.CreateConnectionIcon(16, color);
+        _connectButton.LargeImage = IconFactory.CreateConnectionIcon(32, color);
+        _connectButton.ItemText = busy ? (tool == "send_code_to_revit" ? "Cortex\r\nСкрипт" : "Cortex\r\nИнструмент") : "Cortex\r\nSwitch";
+        _connectButton.ToolTip = busy ? $"Выполняется {tool}. Порт {_port}." : active
             ? $"RevitCortex 2026 running on port {_port} — click to stop"
             : "Start RevitCortex 2026 server";
+    }
+
+    private void UpdateAutomaticButton()
+    {
+        if (_automaticButton == null) return;
+        _automaticButton.ItemText = AutomaticExecutionEnabled ? "Автовыполнение\r\nВКЛ" : "Автовыполнение\r\nВЫКЛ";
+        _automaticButton.Image = IconFactory.CreateConnectionIcon(16, AutomaticExecutionEnabled);
+        _automaticButton.LargeImage = IconFactory.CreateConnectionIcon(32, AutomaticExecutionEnabled);
+        _automaticButton.ToolTip = "Скрипты и изменяющие операции без окна подтверждения. Только этот экземпляр Revit. Проверки безопасности сохраняются.";
     }
 
     private void CreateRibbonPanel(UIControlledApplication application)
@@ -259,10 +294,17 @@ public class RevitCortexApp : IExternalApplication
         var connectBtnData = new PushButtonData(
             "ID_CORTEX_TOGGLE", "Cortex\r\nSwitch",
             assemblyLocation, "RevitCortex.Plugin.Commands.ToggleConnection");
+        connectBtnData.AvailabilityClassName = "RevitCortex.Plugin.Commands.CortexCommandAvailability";
         connectBtnData.ToolTip = "Start RevitCortex 2026 server";
         connectBtnData.Image = IconFactory.CreateConnectionIcon(16, false);
         connectBtnData.LargeImage = IconFactory.CreateConnectionIcon(32, false);
         _connectButton = panel.AddItem(connectBtnData) as Autodesk.Revit.UI.PushButton;
+
+        var automatic = new PushButtonData("ID_CORTEX_AUTOMATIC", "Автовыполнение", assemblyLocation,
+            "RevitCortex.Plugin.Commands.ToggleAutomaticExecution")
+        { AvailabilityClassName = "RevitCortex.Plugin.Commands.CortexCommandAvailability" };
+        _automaticButton = panel.AddItem(automatic) as Autodesk.Revit.UI.PushButton;
+        UpdateAutomaticButton();
 
         var settingsBtn = new PushButtonData(
             "ID_CORTEX_SETTINGS", "Settings",
@@ -379,6 +421,7 @@ public class RevitCortexApp : IExternalApplication
                 UpdateConnectionButtonIcon();
             }
         }
+        if (_displayedServiceRunning != (_socketService?.IsRunning == true)) UpdateConnectionButtonIcon();
         if (_portWarning != null)
         {
             var warning = _portWarning;
@@ -527,22 +570,7 @@ public class RevitCortexApp : IExternalApplication
         }
     }
 
-    private static void CleanupTempScripts()
-    {
-        var scriptsFolder = CortexEnvironment.Current.ProcessScriptsFolder;
-        if (!System.IO.Directory.Exists(scriptsFolder)) return;
-        foreach (var file in System.IO.Directory.GetFiles(scriptsFolder, "*.cs"))
-        {
-            try
-            {
-                using var reader = new System.IO.StreamReader(file);
-                var firstLine = reader.ReadLine() ?? "";
-                if (firstLine.TrimStart().StartsWith("// TEMP", StringComparison.OrdinalIgnoreCase))
-                    System.IO.File.Delete(file);
-            }
-            catch { }
-        }
-    }
+    private static void CleanupTempScripts() => TemporaryScriptCleanup.Clean(CortexEnvironment.Current.ProcessScriptsFolder);
 
     private Assembly? LoadToolsAssembly()
     {

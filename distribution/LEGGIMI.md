@@ -2,7 +2,7 @@
 
 Questa versione è un fork di `LuDattilo/RevitCortex` mantenuto specificamente per **Autodesk Revit 2026**.
 
-Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8880 → 8088; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Critical C# auto-run now defaults to ON at each Revit launch, independently of ordinary auto-run; both retain the visible 3-second countdown, cancellation and process-local opt-out. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8880 → 8088; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Automatic execution defaults to ON at every Revit launch for scripts and ordinary operations. The ribbon toggle and General Settings control one process-local policy. When ON there are no approval windows or countdowns; when OFF manual per-request confirmation remains. Orange indicates C# execution; blue indicates other tool execution. UI-thread work can pause blinking. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
 
 ## Requisiti
 
@@ -34,25 +34,11 @@ Il server MCP viene installato in:
 
 Dopo il riavvio di Revit 2026, usa **Cortex Switch** nel ribbon per avviare o fermare il bridge locale RevitCortex. Il servizio è disattivato per impostazione predefinita.
 
-## Conferma delle operazioni ordinarie
+## Esecuzione automatica
 
-Ogni operazione che richiede conferma mostra un solo pulsante per autorizzarla una volta. L'esecuzione automatica dopo 3 secondi è selezionata per impostazione predefinita; disattivandola, la finestra attende il consenso manuale. La scelta vale fino alla chiusura di Revit. La croce o Escape annullano l'operazione corrente. Le vecchie opzioni di consenso per 2 minuti o senza scadenza e la finestra «Auto mode ON» sono rimosse. Le conferme C# restano separate e richiedono di abilitare esplicitamente il loro auto-run.
+Il comando Avtovypolnenie nella barra e l'opzione nelle impostazioni General controllano la stessa preferenza del processo Revit. Si attiva a ogni avvio. Quando attiva, le operazioni e gli script non mostrano finestre di conferma né conto alla rovescia. Quando disattiva, si richiede la conferma manuale. Le protezioni restano attive.
 
-## Esecuzione C# (`send_code_to_revit`)
-
-L'esecuzione di codice C# è una funzione avanzata e resta **disabilitata per impostazione predefinita**. Può essere abilitata da **Settings → Tools**.
-
-Quando un C# script sta per essere eseguito, RevitCortex mostra una finestra di conferma critica con i pulsanti **Yes** e **No**.
-
-La finestra contiene inoltre l'opzione **Allow auto-run**:
-
-- se non è selezionata, lo script parte solo dopo un click manuale su **Yes**;
-- se viene selezionata, il pulsante mostra un conto alla rovescia di **3 secondi**;
-- allo scadere dei 3 secondi lo script viene approvato automaticamente;
-- **Yes** e **No** restano utilizzabili durante il conto alla rovescia;
-- l'opzione vale solo per la sessione Revit corrente e viene azzerata alla chiusura di Revit.
-
-La validazione sandbox e l'audit del tool restano attivi.
+Cortex Switch: grigio = spento, verde = disponibile, arancione = script C#, blu = altro strumento. Il lampeggio può fermarsi durante un'operazione Revit sincrona. Non indica una percentuale di avanzamento.
 
 ## Sicurezza
 

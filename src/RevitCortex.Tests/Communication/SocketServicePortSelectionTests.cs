@@ -80,6 +80,49 @@ public class SocketServicePortSelectionTests
         finally { service.Stop(); }
     }
 
+    private sealed class AcceptFailureService(CortexRouter router) : SocketService(router)
+    {
+        public readonly ManualResetEventSlim FailNow = new(false);
+        protected override TcpClient AcceptClient(TcpListener listener)
+        {
+            FailNow.Wait();
+            throw new IOException("Injected accept-loop crash");
+        }
+    }
+
+    [Fact]
+    public void ListenerCrashReleasesSocketBeforeReportingStopped()
+    {
+        var service = new AcceptFailureService(new CortexRouter(new CortexSession(new SessionStore()), new Router.FakeAnalyzer()));
+        var port = ReserveThenReleaseTwoPorts()[0];
+        try
+        {
+            service.StartOnFirstAvailablePort(port);
+            service.FailNow.Set();
+            Assert.True(SpinWait.SpinUntil(() => !service.IsRunning, 3000));
+            using var listener = new TcpListener(IPAddress.Loopback, port);
+            listener.ExclusiveAddressUse = true;
+            listener.Start();
+        }
+        finally { service.FailNow.Set(); service.Stop(); }
+    }
+
+    private sealed class PublicationService(CortexRouter router, Action<int> publish, Func<int?> read) : SocketService(router, boundPort: publish)
+    {
+        public int? PortBeforeAcceptThread;
+        protected override void StartListenerThread(Thread thread) { PortBeforeAcceptThread = read(); base.StartListenerThread(thread); }
+    }
+
+    [Fact]
+    public void ActualPortIsPublishedBeforeAcceptThreadStarts()
+    {
+        int? published = null;
+        var port = ReserveThenReleaseTwoPorts()[0];
+        var service = new PublicationService(new CortexRouter(new CortexSession(new SessionStore()), new Router.FakeAnalyzer()), p => published = p, () => published);
+        try { service.StartOnFirstAvailablePort(port); Assert.Equal(port, service.PortBeforeAcceptThread); }
+        finally { service.Stop(); }
+    }
+
     private static SocketService CreateService() => new(
         new CortexRouter(new CortexSession(new SessionStore()), new Router.FakeAnalyzer()));
 

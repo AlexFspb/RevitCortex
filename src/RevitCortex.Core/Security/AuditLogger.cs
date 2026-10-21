@@ -72,7 +72,7 @@ public class AuditLogger
 
     /// <summary>Per-process request journal; separate from legacy audit consumers.</summary>
     public string RequestLogPath => Path.Combine(Path.GetDirectoryName(_logPath) ?? ".",
-        Path.GetFileNameWithoutExtension(_logPath) + ".requests-" + Process.GetCurrentProcess().Id + ".jsonl");
+        Path.GetFileNameWithoutExtension(_logPath) + ".requests-" + RevitCortex.Core.Hosting.CortexProcess.Id + ".jsonl");
 
     public void LogRequest(string requestId, string phase, string toolName, int? port,
         string? documentTitle, long documentGeneration, string inputSummary,
@@ -81,7 +81,7 @@ public class AuditLogger
         WriteEntry(new
         {
             ts = DateTime.UtcNow.ToString("o"), v = 3, requestId, phase,
-            revitProcessId = Process.GetCurrentProcess().Id, bridgePort = port,
+            revitProcessId = RevitCortex.Core.Hosting.CortexProcess.Id, bridgePort = port,
             buildId = CortexBuild.Id, coreModuleId = CortexBuild.CoreModuleId,
             activeDocumentTitle = documentTitle, documentGeneration,
             tool = toolName, input_summary = Truncate(inputSummary, 500), codeHash,

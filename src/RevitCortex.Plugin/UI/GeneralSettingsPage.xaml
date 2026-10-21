@@ -18,6 +18,10 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,10">
             <TextBlock Text="General Settings" FontSize="22" FontWeight="SemiBold" Foreground="#333"/>
             <TextBlock Text="Configure RevitCortex for Autodesk Revit 2026" Foreground="#666" Margin="0,5,0,0"/>
+            <CheckBox x:Name="AutomaticExecutionCheckBox" Content="Автоматическое выполнение" Margin="0,12,0,0"
+                      Checked="AutomaticExecutionChanged" Unchecked="AutomaticExecutionChanged"/>
+            <TextBlock Text="Без окон подтверждения и задержки. Только этот Revit. При запуске включено."
+                       TextWrapping="Wrap" Foreground="#666" Margin="0,4,0,0"/>
         </StackPanel>
 
         <!-- Connection Status Banner -->

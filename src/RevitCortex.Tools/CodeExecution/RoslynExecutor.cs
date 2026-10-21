@@ -66,6 +66,11 @@ public static class RoslynExecutor
 
         if (assemblyBytes == null)
         {
+            if (compileErrors.Any(e => e.StartsWith("CORTEX_HOST_ACCESS:", StringComparison.Ordinal)))
+                return CortexResult<object>.Fail(CortexErrorCode.PermissionDenied,
+                    string.Join("\n", compileErrors),
+                    suggestion: "Remove access to Cortex host controls. The script was not executed. Only documented family/failure helpers and result data types are available.",
+                    context: new Dictionary<string, object> { ["scriptExecuted"] = false, ["reason"] = "HostControlAccess" });
             // Keep this literal independent of Roslyn types in the isolated ALC.
             if (compileErrors.Any(e => e.StartsWith("CORTEX_FAMILY_GUARD: ", StringComparison.Ordinal)))
                 return new ScriptPreconditionException("FamilyEditCallRejected", "Document.EditFamily",

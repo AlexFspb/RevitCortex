@@ -21,6 +21,7 @@ public partial class GeneralSettingsPage : Page
     private static int DefaultPort => CortexPort.PrimaryPort;
     private const string DefaultLogLevel = "Info";
     private const int DefaultKeepCount = 10;
+    private bool _refreshingAutomatic;
     private DispatcherTimer? _saveFeedbackTimer;
     private DispatcherTimer? _downloadTimer;
 
@@ -29,6 +30,9 @@ public partial class GeneralSettingsPage : Page
     public GeneralSettingsPage()
     {
         InitializeComponent();
+        RefreshAutomaticExecution();
+        Loaded += (_, _) => { if (RevitCortexApp.Instance is { } host) { host.AutomaticExecutionChanged -= RefreshAutomaticExecution; host.AutomaticExecutionChanged += RefreshAutomaticExecution; } RefreshAutomaticExecution(); };
+        Unloaded += (_, _) => { if (RevitCortexApp.Instance is { } host) host.AutomaticExecutionChanged -= RefreshAutomaticExecution; };
         ApplyLocalizedStrings();
         LoadSettings();
         ShowPortOverride();
@@ -45,6 +49,17 @@ public partial class GeneralSettingsPage : Page
             if (RevitCortexApp.Instance != null)
                 RevitCortexApp.Instance.ServiceStateChanged -= OnServiceStateChanged;
         };
+    }
+
+    private void RefreshAutomaticExecution()
+    {
+        _refreshingAutomatic = true;
+        AutomaticExecutionCheckBox.IsChecked = RevitCortexApp.Instance?.AutomaticExecutionEnabled == true;
+        _refreshingAutomatic = false;
+    }
+    private void AutomaticExecutionChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_refreshingAutomatic) RevitCortexApp.Instance?.SetAutomaticExecution(AutomaticExecutionCheckBox.IsChecked == true);
     }
 
     private void OnServiceStateChanged()

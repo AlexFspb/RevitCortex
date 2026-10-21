@@ -1,6 +1,6 @@
 # RevitCortex — Autodesk Revit 2026 Fork
 
-Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8880 → 8088; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Critical C# auto-run now defaults to ON at each Revit launch, independently of ordinary auto-run; both retain the visible 3-second countdown, cancellation and process-local opt-out. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8880 → 8088; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Automatic execution defaults to ON at every Revit launch for scripts and ordinary operations. The ribbon toggle and General Settings control one process-local policy. When ON there are no approval windows or countdowns; when OFF manual per-request confirmation remains. Orange indicates C# execution; blue indicates other tool execution. UI-thread work can pause blinking. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
 
 > **Scope of this fork: Autodesk Revit 2026 only.**
 >
@@ -54,30 +54,15 @@ Write access is controlled by the actual operating/safety settings instead:
 - destructive operations retain confirmation/safety handling;
 - `send_code_to_revit` retains its dedicated enable switch, sandbox checks and audit logging.
 
-## Main fork customization: timed script approval
+## Automatic execution and activity indication
 
-Ordinary destructive/bulk operations now use a separate per-operation window:
-one **Разрешить однократно / Allow once** button and an **Автовыполнение / Auto-run**
-checkbox, enabled by default at Revit startup. Each request counts down for
-3 seconds. Uncheck it to wait for manual approval; X or Escape cancels the current
-request. The choice lasts only for this process. The old two-minute/unlimited
-approval menu and floating Auto mode ON window are removed. This setting is
-independent of the custom-C# window described below, which also defaults to on.
+The ribbon **Автовыполнение** toggle and **Settings → General → Автоматическое выполнение** share one process-local policy. It defaults to ON at each Revit launch, as explicitly requested by the user on 2026-10-21. Switching documents does not reset it. Nothing is persisted to settings.json and other Revit processes are unaffected.
 
-`send_code_to_revit` remains a last-resort feature for operations that are not covered by a dedicated RevitCortex tool.
+When ON, scripts and ordinary operations pass the host approval step immediately, without windows, countdowns or focus changes. When OFF, ordinary modifying operations use Allow once and critical C# uses Yes/No; X/Escape cancels. Read-only tools retain their existing confirmation requirements (normally none).
 
-Custom C# execution is **disabled by default**. When enabled in **Settings → Tools**, every script still passes the existing settings gate, sandbox validation, router permissions and audit logging before execution.
+Cortex Switch is gray when stopped, green when idle, orange while handling C# and blue while handling other ExternalEvent tools. Busy icons alternate bright/dim when the UI Dispatcher is available. Long synchronous Revit work may pause both blinking and repaint; this is not a liveness or progress guarantee. No nested message pump, screen access or window activation is used. Connection probes do not blink. The indicator clears when the handler actually finishes, not when the MCP caller times out.
 
-For the final critical confirmation, this fork adds a dedicated Revit window with:
-
-- **Yes** — approve immediately;
-- **No** — cancel;
-- **Allow auto-run** — session-only automatic approval, enabled by default at Revit startup;
-- a visible **3-second countdown** on the Yes action when auto-run is enabled;
-- automatic approval when the countdown reaches zero;
-- manual Yes/No available at all times during the countdown.
-
-`Allow auto-run` is intentionally **not persisted** to `settings.json`. It resets to enabled on the next Revit launch.
+Sandbox checks, EnableCodeExecution, disabled tools, read-only mode, context checks, expiration and audit remain mandatory. Scripts cannot change host controls. Do not reintroduce per-dialog automatic approval or chat approval for already authorized work.
 
 ## Safety model
 
@@ -85,7 +70,7 @@ For the final critical confirmation, this fork adds a dedicated Revit window wit
 - Use `dryRun: true` / preview-first workflows where supported.
 - User-selected read-only mode continues to block write tools.
 - `send_code_to_revit` continues to use sandbox validation and audit logging.
-- The timed auto-run option automates only the final critical approval; it does not disable the other safety gates.
+- The automatic execution toggle automates only the host approval step; it does not disable the other safety gates.
 - `Document.EditFamily` is supported in a valid ExternalEvent API context; it is not inherently a modal UI command. Cortex rejects script entry with an open transaction and instruments direct EditFamily calls with runtime precondition checks. Unsupported delegate/conditional call forms fail before execution. ScriptPreconditionFailed reports whether script execution began; earlier effects are not claimed rolled back. Custom family-edit scripts must use `transactionMode: "none"`, not `auto`/`group`. Check the source document and family preconditions; manage family transactions and cleanup. Use the shipped FamilyLoadPolicy with both choices explicit, and Configure(tx, rollbackOnWarnings: true) for strict tasks. In none/group return capture diagnostics yourself; check the Close(false) boolean result. SaveAs uses a literal path in an existing folder; filesystem/backup checks stay outside the sandbox. Never invoke interactive editor/dialog flows. `none` does not provide a cross-document/file rollback. A timeout does not abort running API code. See [family editing](docs/family-editing.md). Compiler checks run once before confirmation and script persistence. In auto, use strictWarnings=true for tasks requiring rollback on warnings (default false). This flag is rejected in none/group; configure each owned transaction with rollbackOnWarnings: true instead.
 
 ## Diagnostic reports

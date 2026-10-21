@@ -81,6 +81,14 @@ public class FamilyEditGuardTests
 
     private const string Setup = "var doc = new Document(); var f = new Family { Document = doc }; Document.Calls = 0; ";
 
+    [Fact]
+    public void UserMethodNamedNameofCannotBypassGuard()
+    {
+        var result = Compile(Setup + "Document nameof(Document d) => d; return nameof(doc.EditFamily(f));", "auto");
+        Assert.Null(result.Bytes);
+        Assert.Contains(result.Errors, e => e.Contains("transactionMode=none"));
+    }
+
     [Theory]
     [InlineData("auto")]
     [InlineData("group")]

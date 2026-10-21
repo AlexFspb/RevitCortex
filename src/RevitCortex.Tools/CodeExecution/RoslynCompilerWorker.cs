@@ -57,6 +57,9 @@ public static class RoslynCompilerWorker
                 optimizationLevel: OptimizationLevel.Release,
                 allowUnsafe: false));
 
+        var hostErrors = ScriptHostAccessGuard.Validate(compilation, syntaxTree, prefixLines);
+        if (hostErrors.Length != 0) { errors = hostErrors; return null; }
+
         var guardedTree = FamilyEditCallRewriter.Rewrite(compilation, syntaxTree, transactionMode, prefixLines, out var guardErrors);
         if (guardErrors.Length == 0 && guardedTree != syntaxTree) compilation = compilation.ReplaceSyntaxTree(syntaxTree, guardedTree);
 

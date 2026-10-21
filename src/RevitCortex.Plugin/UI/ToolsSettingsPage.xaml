@@ -41,7 +41,7 @@
                               Foreground="#5D4037"
                               Content="Allow send_code_to_revit (custom C# execution)"/>
                     <TextBlock Foreground="#8D6E63" FontSize="11" Margin="20,3,0,0" TextWrapping="Wrap"
-                               Text="Code execution is off by default. When enabled, each script opens critical confirmation. 'Allow auto-run' defaults to ON at each Revit launch: a visible 3-second countdown approves the script. Cancel or uncheck to stop automatic approval. This choice is process-local."/>
+                               Text="Code execution is off by default. When enabled, scripts follow the Automatic execution setting on the ribbon and General page. ON runs without approval windows or delay; OFF asks for manual confirmation. The setting defaults to ON at each Revit launch. Sandbox and other safeguards remain active."/>
                 </StackPanel>
             </Border>
         </StackPanel>

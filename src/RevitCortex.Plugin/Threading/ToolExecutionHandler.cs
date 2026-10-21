@@ -15,7 +15,18 @@ public class ToolExecutionHandler : IExternalEventHandler
     private ToolRequestLifetime? _request;
     private bool _executing;
     private CortexSession.DocumentContext _pendingDocumentContext;
-    public ToolExecutionHandler(AuditLogger? auditLogger = null) => _auditLogger = auditLogger ?? new AuditLogger();
+    private readonly Action<string>? _activityStart;
+    private readonly Action? _activityEnd;
+    public ToolExecutionHandler(AuditLogger? auditLogger = null, Action<string>? activityStart = null, Action? activityEnd = null)
+    {
+        _auditLogger = auditLogger ?? new AuditLogger();
+        _activityStart = activityStart; _activityEnd = activityEnd;
+    }
+    private static void Notify(Action action)
+    {
+        try { action(); }
+        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[RevitCortex] Activity indicator: {ex}"); }
+    }
     public ICortexTool? PendingTool { get; private set; }
     public JObject? PendingInput { get; private set; }
     public CortexSession? PendingSession { get; private set; }
@@ -49,7 +60,7 @@ public class ToolExecutionHandler : IExternalEventHandler
                     && session.MatchesTarget(input["_cortexExpected"] as JObject)
                     && (!tool.RequiresDocument || IsActiveDocument(app!, context.Document));
                 var valid = request.ContextIsValid();
-                if (valid && tool.RequiresDocument) valid = IsActiveDocument(app!, context.Document);
+                if (valid) Notify(() => _activityStart?.Invoke(tool.Name));
                 result = valid ? tool.Execute(input, session) : CortexResult<object>.Fail(CortexErrorCode.Cancelled,
                     "The active document was closed or changed while this command was waiting. Nothing was executed.",
                     suggestion: "Verify the active project before issuing a new request; do not retry automatically.");
@@ -59,6 +70,7 @@ public class ToolExecutionHandler : IExternalEventHandler
         catch (ConfirmationExpiredException ex) { result = ex.ToResult(); }
         catch (ConfirmationFailedException ex) { result = ex.ToResult(); }
         catch (Exception ex) { result = CortexResult<object>.Fail(CortexErrorCode.Unknown, $"Unhandled exception: {ex.Message}"); }
+        finally { Notify(() => _activityEnd?.Invoke()); }
         lock (_stateLock)
         {
             // Each waiter reads its own request.Completion, never this shared compatibility property.

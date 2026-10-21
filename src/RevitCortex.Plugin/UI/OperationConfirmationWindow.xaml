@@ -13,17 +13,7 @@
             <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12">
                 <TextBlock x:Name="DescriptionText" FontSize="12" Foreground="#555" TextWrapping="Wrap"/>
             </ScrollViewer>
-            <Border Padding="10" Background="#FAFAFA" BorderBrush="#D0D0D0"
-                    BorderThickness="1" CornerRadius="3" Margin="0,0,0,12">
-                <StackPanel>
-                    <CheckBox x:Name="AutoRunCheckBox" Content="Автовыполнение"
-                              FontSize="13" FontWeight="SemiBold"
-                              Checked="AutoRunChanged" Unchecked="AutoRunChanged"/>
-                    <TextBlock x:Name="AutoRunHint" Margin="22,5,0,0" FontSize="11"
-                               Foreground="#666" TextWrapping="Wrap"/>
-                </StackPanel>
-            </Border>
-            <Button x:Name="AllowOnceButton" Click="AllowOnce_Click" Padding="12,10"
+<Button x:Name="AllowOnceButton" Click="AllowOnce_Click" Padding="12,10"
                     HorizontalContentAlignment="Left" Background="#F0F6FC" BorderBrush="#7DA7D9">
                 <TextBlock x:Name="AllowOnceText" Text="Разрешить однократно"
                            FontSize="13" Foreground="#1565C0" TextWrapping="Wrap"/>

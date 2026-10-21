@@ -278,12 +278,6 @@ public class CortexRouter
                 $"Unhandled exception: {ex.Message}",
                 suggestion: "Retry; if it persists, send a support report from the RevitCortex ribbon.");
         }
-        finally
-        {
-            // Reset only the per-batch Yes-to-All flag. Auto mode persists until
-            // explicitly stopped or the document is reinitialized.
-            _session.ApproveAll = false;
-        }
 
         var responseBytes = EstimateResponseBytes(result);
 

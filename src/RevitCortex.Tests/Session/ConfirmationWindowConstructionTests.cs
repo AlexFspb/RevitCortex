@@ -8,7 +8,7 @@ namespace RevitCortex.Tests.Session;
 public class ConfirmationWindowConstructionTests
 {
     [Fact]
-    public async Task OrdinaryWindow_HasOneAction_DefaultAuto_AndIndependentCriticalPreference()
+    public async Task ManualWindowsHaveNoAutomaticApprovalControlsOrTimers()
     {
         var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
@@ -23,51 +23,20 @@ public class ConfirmationWindowConstructionTests
                 critical = new CriticalConfirmationWindow("execute C#", 1, "Test description");
                 Assert.False(ordinary.IsVisible);
                 Assert.False(critical.IsVisible);
-                var normalAuto = (CheckBox)ordinary.FindName("AutoRunCheckBox");
-                var criticalAuto = (CheckBox)critical.FindName("AutoApproveCheckBox");
-                Assert.True(normalAuto.IsChecked);
-                Assert.True(criticalAuto.IsChecked);
-                criticalAuto.IsChecked = false; // User opt-out stays independent from ordinary auto-run.
+                Assert.Empty(Descendants(ordinary).OfType<CheckBox>());
+                Assert.Empty(Descendants(critical).OfType<CheckBox>());
                 Assert.Single(Descendants(ordinary).OfType<Button>());
                 Assert.Equal(2, Descendants(critical).OfType<Button>().Count());
-
-                normalAuto.IsChecked = false;
-                Assert.False(OperationConfirmationWindow.AutoRunEnabled);
-                Assert.False(CriticalConfirmationWindow.AutoApproveEnabled);
                 Assert.Equal("Разрешить однократно", ((TextBlock)ordinary.FindName("AllowOnceText")).Text);
-                normalAuto.IsChecked = true;
-                Assert.True(OperationConfirmationWindow.AutoRunEnabled);
-                Assert.False(CriticalConfirmationWindow.AutoApproveEnabled);
-
-                // Regression: checking auto before ShowDialog must never start a timer.
-                criticalAuto.IsChecked = true;
-                var timer = (System.Windows.Threading.DispatcherTimer)typeof(CriticalConfirmationWindow)
-                    .GetField("_timer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(critical)!;
-                Assert.False(timer.IsEnabled);
-                var tick = typeof(CriticalConfirmationWindow).GetMethod("Timer_Tick",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-                tick.Invoke(critical, new object?[] { null, EventArgs.Empty });
-                Assert.False(timer.IsEnabled);
-                critical.CleanupConfirmation();
-                tick.Invoke(critical, new object?[] { null, EventArgs.Empty });
-                Assert.False(critical.IsVisible);
-                criticalAuto.IsChecked = false;
+                Assert.Equal("Yes", ((TextBlock)critical.FindName("YesTitleText")).Text);
+                ordinary.CleanupConfirmation(); critical.CleanupConfirmation();
             }
             catch (Exception ex) { failure = ex; }
             finally
             {
                 try
                 {
-                    if (ordinary != null)
-                    {
-                        ((CheckBox)ordinary.FindName("AutoRunCheckBox")).IsChecked = true;
-                        ordinary.Close();
-                    }
-                    if (critical != null)
-                    {
-                        ((CheckBox)critical.FindName("AutoApproveCheckBox")).IsChecked = true;
-                        critical.Close();
-                    }
+                    ordinary?.Close(); critical?.Close();
                 }
                 catch (Exception ex) { failure ??= ex; }
             }

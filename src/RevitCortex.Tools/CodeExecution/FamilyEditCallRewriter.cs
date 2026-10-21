@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Operations;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -31,7 +32,7 @@ internal static class FamilyEditCallRewriter
                 owner != "RevitCortex.Tools.CodeExecution.ScriptFamilyEditGuard") continue;
             // nameof does not invoke or capture the method.
             if (name.Ancestors().OfType<InvocationExpressionSyntax>().Any(i =>
-                    i.Expression is IdentifierNameSyntax id && id.Identifier.ValueText == "nameof")) continue;
+                    model.GetOperation(i) is INameOfOperation)) continue;
 
             string? problem = null;
             if (mode != "none") problem = "EditFamily requires transactionMode=none; auto/group are rejected before script execution.";

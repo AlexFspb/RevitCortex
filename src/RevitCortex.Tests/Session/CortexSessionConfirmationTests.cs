@@ -1,265 +1,71 @@
-using System;
-using System.IO;
-using RevitCortex.Core.Discovery;
 using RevitCortex.Core.Session;
+using RevitCortex.Core.Discovery;
 using Xunit;
 
 namespace RevitCortex.Tests.Session;
 
-/// <summary>
-/// Characterization tests for destructive-operation confirmation gates.
-/// </summary>
 public class CortexSessionConfirmationTests
 {
-    private static CortexSession NewSession()
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void MissingOrNullCallbackDenies(bool critical)
     {
-        return new CortexSession(new SessionStore());
+        var session = new CortexSession(new SessionStore());
+        Assert.False(session.RequestConfirmation("change", 1, critical: critical));
+        session.ConfirmAction = session.CriticalConfirmAction = (_, _, _) => null;
+        Assert.False(session.RequestConfirmation("change", 1, critical: critical));
     }
-
-    [Fact]
-    public void RequestConfirmation_WhenAutoModeOn_AutoApprovesWithoutInvokingCallback()
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void HostPolicyControlsBothKindsWithoutWindowWhenEnabled(bool critical)
     {
-        var session = NewSession();
-        var callbackInvoked = false;
-        session.ConfirmAction = (_, _, _) => { callbackInvoked = true; return false; };
-        session.AutoMode = true;
-
-        var result = session.RequestConfirmation("delete", 5);
-
-        Assert.True(result);
-        Assert.False(callbackInvoked);
-    }
-
-    [Fact]
-    public void RequestConfirmation_WhenAutoModeOff_InvokesCallback()
-    {
-        var session = NewSession();
-        var callbackInvoked = false;
-        session.ConfirmAction = (_, _, _) => { callbackInvoked = true; return true; };
-
-        session.RequestConfirmation("delete", 5);
-
-        Assert.True(callbackInvoked);
-    }
-
-    [Fact]
-    public void AutoMode_HasNoTimeout_StaysTrueWhenSet()
-    {
-        var session = NewSession();
-        session.AutoMode = true;
-
-        Assert.True(session.AutoMode);
-    }
-
-    [Fact]
-    public void RequestConfirmation_WhenAutoModeOn_FiresAutoModeActivity()
-    {
-        var session = NewSession();
-        session.AutoMode = true;
-        var activityCount = 0;
-        session.AutoModeActivity += () => activityCount++;
-
-        session.RequestConfirmation("delete", 5);
-        session.RequestConfirmation("delete", 3);
-
-        Assert.Equal(2, activityCount);
-    }
-
-    [Fact]
-    public void RequestConfirmation_WhenAutoModeOff_DoesNotFireAutoModeActivity()
-    {
-        var session = NewSession();
-        var activityFired = false;
-        session.AutoModeActivity += () => activityFired = true;
-        session.ConfirmAction = (_, _, _) => true;
-
-        session.RequestConfirmation("delete", 5);
-
-        Assert.False(activityFired);
-    }
-
-    [Fact]
-    public void PerOperationApproval_InvokesEachCallback_WithoutArmingLegacyModes()
-    {
-        var session = NewSession();
-        var calls = 0;
-        session.ConfirmAction = (_, _, _) => { calls++; return true; };
-        Assert.True(session.RequestConfirmation("delete", 5));
-        Assert.True(session.RequestConfirmation("delete", 2));
-        Assert.Equal(2, calls);
-        Assert.False(session.AutoMode);
-        Assert.False(session.ApproveAll);
-    }
-
-    [Fact]
-    public void Reinitialize_ResetsAutoMode()
-    {
-        var session = NewSession();
-        session.AutoMode = true;
-
+        var policy = new AutomaticExecutionPolicy();
+        var session = new CortexSession(new SessionStore());
+        var shown = 0;
+        session.ConfirmAction = session.CriticalConfirmAction = (_, _, _) => policy.Decide(() => { shown++; return false; });
+        Assert.True(session.RequestConfirmation("change", 1, critical: critical));
+        Assert.Equal(0, shown);
+        policy.SetEnabled(false);
+        Assert.False(session.RequestConfirmation("change", 1, critical: critical));
+        Assert.Equal(1, shown);
         session.Reinitialize(new DocumentCapabilities(), "en");
-
-        Assert.False(session.AutoMode);
+        Assert.False(policy.Enabled); // A document switch never re-enables automatic execution.
+        Assert.True(new AutomaticExecutionPolicy().Enabled); // A fresh process/host starts enabled.
     }
-
     [Fact]
-    public void ResetApproveAll_ResetsBothApproveAllAndAutoMode()
+    public void HostPoliciesAreIndependent()
     {
-        var session = NewSession();
-        session.ApproveAll = true;
-        session.AutoMode = true;
-
-        session.ResetApproveAll();
-
-        Assert.False(session.ApproveAll);
-        Assert.False(session.AutoMode);
+        var first = new AutomaticExecutionPolicy(); var second = new AutomaticExecutionPolicy();
+        first.SetEnabled(false);
+        Assert.True(second.Enabled);
     }
-
     [Fact]
-    public void RequestConfirmation_WhenApproveAllOn_AutoApprovesWithoutCallback()
+    public void CriticalDoesNotUseOrdinaryCallback()
     {
-        var session = NewSession();
-        var callbackInvoked = false;
-        session.ConfirmAction = (_, _, _) => { callbackInvoked = true; return false; };
-        session.ApproveAll = true;
-
-        var result = session.RequestConfirmation("purge", 3);
-
-        Assert.True(result);
-        Assert.False(callbackInvoked);
+        var session = new CortexSession(new SessionStore()) { ConfirmAction = (_, _, _) => true };
+        Assert.False(session.RequestConfirmation("script", 1, critical: true));
     }
-
-    [Fact]
-    public void RequestConfirmation_NullCallbackResult_TreatedAsYesToAll_SetsApproveAll()
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void ApprovalStillChecksContextAndExpiration(bool critical)
     {
-        var session = NewSession();
-        session.ConfirmAction = (_, _, _) => null;
-
-        var result = session.RequestConfirmation("rename", 2);
-
-        Assert.True(result);
-        Assert.True(session.ApproveAll);
+        var session = new CortexSession(new SessionStore()) { ConfirmAction = (_, _, _) => true, CriticalConfirmAction = (_, _, _) => true };
+        var request = new ToolRequestLifetime(); request.TryStart();
+        using var scope = request.Enter();
+        request.ContextIsValid = () => false;
+        Assert.Throws<DocumentContextChangedException>(() => session.RequestConfirmation("change", 1, critical: critical));
+        request.ContextIsValid = () => true;
+        request.Expire("change", 1);
+        Assert.Throws<ConfirmationExpiredException>(() => session.RequestConfirmation("change", 1, critical: critical));
     }
-
-    [Fact]
-    public void RequestConfirmation_ZeroElements_ReturnsTrueWithoutCallback()
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void ExpirationDuringApprovalDoesNotAuthorizeExecution(bool critical)
     {
-        var session = NewSession();
-        var callbackInvoked = false;
-        session.ConfirmAction = (_, _, _) => { callbackInvoked = true; return false; };
-
-        var result = session.RequestConfirmation("delete", 0);
-
-        Assert.True(result);
-        Assert.False(callbackInvoked);
-    }
-
-    [Fact]
-    public void RequestConfirmation_NoCallbackSet_ProceedsWithoutBlocking()
-    {
-        var session = NewSession();
-
-        var result = session.RequestConfirmation("delete", 10);
-
-        Assert.True(result);
-    }
-
-    [Fact]
-    public void RequestConfirmation_CallbackReturnsFalse_Cancels()
-    {
-        var session = NewSession();
-        session.ConfirmAction = (_, _, _) => false;
-
-        var result = session.RequestConfirmation("delete", 10);
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public void RequestConfirmation_CriticalWithoutCallback_FailsClosed()
-    {
-        var session = NewSession();
-
-        var result = session.RequestConfirmation("execute C# script", 1, critical: true);
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public void RequestConfirmation_CriticalIgnoresApproveAll()
-    {
-        var session = NewSession();
-        var callbackInvoked = false;
-        session.ApproveAll = true;
-        session.ConfirmAction = (_, _, _) =>
-        {
-            throw new InvalidOperationException("Normal callback must not handle critical confirmations.");
-        };
-        session.CriticalConfirmAction = (_, _, _) =>
-        {
-            callbackInvoked = true;
-            return false;
-        };
-
-        var result = session.RequestConfirmation("execute C# script", 1, critical: true);
-
-        Assert.False(result);
-        Assert.True(callbackInvoked);
-    }
-
-    [Fact]
-    public void RequestConfirmation_CriticalIgnoresAutoMode()
-    {
-        var session = NewSession();
-        var callbackInvoked = false;
-        session.AutoMode = true;
-        session.ConfirmAction = (_, _, _) =>
-        {
-            throw new InvalidOperationException("Normal callback must not handle critical confirmations.");
-        };
-        session.CriticalConfirmAction = (_, _, _) =>
-        {
-            callbackInvoked = true;
-            return false;
-        };
-
-        var result = session.RequestConfirmation("execute C# script", 1, critical: true);
-
-        Assert.False(result);
-        Assert.True(callbackInvoked);
-    }
-
-    [Fact]
-    public void RequestConfirmation_CriticalNullCallbackResult_CancelsAndDoesNotArmApproveAll()
-    {
-        var session = NewSession();
-        session.CriticalConfirmAction = (_, _, _) => null;
-
-        var result = session.RequestConfirmation("execute C# script", 1, critical: true);
-
-        Assert.False(result);
-        Assert.False(session.ApproveAll);
-    }
-
-    [Fact]
-    public void RequestConfirmation_CriticalIgnoresNormalCallback()
-    {
-        var session = NewSession();
-        session.ConfirmAction = (_, _, _) => true;
-
-        var result = session.RequestConfirmation("execute C# script", 1, critical: true);
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public void RequestConfirmation_CriticalAllowsExplicitCriticalYes()
-    {
-        var session = NewSession();
-        session.CriticalConfirmAction = (_, _, _) => true;
-
-        var result = session.RequestConfirmation("execute C# script", 1, critical: true);
-
-        Assert.True(result);
+        var request = new ToolRequestLifetime(); request.TryStart();
+        using var scope = request.Enter();
+        var session = new CortexSession(new SessionStore());
+        session.ConfirmAction = session.CriticalConfirmAction = (_, _, _) => { request.Expire("change", 1); return true; };
+        Assert.Throws<ConfirmationExpiredException>(() => session.RequestConfirmation("change", 1, critical: critical));
     }
 }

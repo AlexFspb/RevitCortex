@@ -9,7 +9,7 @@
         ShowInTaskbar="True"
         WindowStyle="SingleBorderWindow"
         Background="White"
-        Loaded="Window_Loaded">
+        Loaded="Window_Loaded" PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
         <Style x:Key="CommandLink" TargetType="Button">
@@ -61,28 +61,7 @@
                        TextWrapping="Wrap"
                        Margin="18,0,18,10"/>
 
-            <Border Margin="18,2,18,10"
-                    Padding="10"
-                    BorderBrush="#D0D0D0"
-                    BorderThickness="1"
-                    CornerRadius="2"
-                    Background="#FAFAFA">
-                <StackPanel>
-                    <CheckBox x:Name="AutoApproveCheckBox"
-                              Content="Allow auto-run"
-                              FontSize="12"
-                              FontWeight="SemiBold"
-                              Checked="AutoApprove_Checked"
-                              Unchecked="AutoApprove_Unchecked"/>
-                    <TextBlock Text="When enabled, C# scripts are approved automatically after a 3-second countdown. The setting stays active for this Revit session."
-                               FontSize="11"
-                               Foreground="#666"
-                               TextWrapping="Wrap"
-                               Margin="22,4,0,0"/>
-                </StackPanel>
-            </Border>
-
-            <Button x:Name="YesButton"
+<Button x:Name="YesButton"
                     Style="{StaticResource CommandLink}"
                     Margin="10,0,10,2"
                     Click="Yes_Click">

@@ -7,7 +7,12 @@ namespace RevitCortex.Plugin.UI;
 
 public static class ConfirmationHelper
 {
-    public static bool? Confirm(string action, int elementCount, string? description)
+    public static bool? Confirm(string action, int elementCount, string? description) =>
+        Decide(() => ConfirmManual(action, elementCount, description));
+
+    private static bool? Decide(Func<bool?> manual) => RevitCortexApp.Instance?.DecideConfirmation(manual) ?? false;
+
+    private static bool? ConfirmManual(string action, int elementCount, string? description)
     {
         if (elementCount <= 0) return true;
         OperationConfirmationWindow? dialog = null;
@@ -21,7 +26,10 @@ public static class ConfirmationHelper
         finally { dialog?.CleanupConfirmation(); }
     }
 
-    public static bool? ConfirmCritical(string action, int elementCount, string? description)
+    public static bool? ConfirmCritical(string action, int elementCount, string? description) =>
+        Decide(() => ConfirmCriticalManual(action, elementCount, description));
+
+    private static bool? ConfirmCriticalManual(string action, int elementCount, string? description)
     {
         if (elementCount <= 0) return true;
         CriticalConfirmationWindow? dialog = null;
