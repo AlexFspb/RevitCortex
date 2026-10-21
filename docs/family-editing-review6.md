@@ -1,5 +1,7 @@
 # Исправления замечаний Claude: редактирование семейств
 
+> Historical review. Approval/countdown descriptions below refer to the reviewed build. Current policy (2026-10-21): default-on process-local automatic execution, no approval window or countdown when ON; manual confirmation when OFF. See [current release review](ribbon-activity-review.md).
+
 Дата: 2026-10-08. Сборка: `2026.10.08-family-edit-review.6`.
 Репозиторий: `AlexFspb/RevitCortex`, ветка `fix/per-instance-revit-port`, PR №2.
 База проверки: `035d1a193005ea52df6a6c46e28b04383357ee35` (guard.5).

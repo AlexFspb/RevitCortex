@@ -8,7 +8,7 @@ namespace RevitCortex.Core.Session;
 /// <summary>
 /// Facade passed to every tool. Provides access to shared state,
 /// document capabilities, and detected locale. Does NOT hold a
-/// direct Revit Document reference â€” that lives in the Plugin layer.
+/// direct Revit Document reference — that lives in the Plugin layer.
 /// Core has no Revit dependency.
 /// </summary>
 public class CortexSession

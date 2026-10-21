@@ -84,7 +84,7 @@ The API mechanism follows Autodesk's [IFailuresPreprocessor contract](https://he
 
 ## Unchanged product decisions
 
-Automatic Release 8080 → 8888; Dev 8081 → 8889; no start/stop OK dialogs; ordinary default-on 3-second auto-run; separate critical C# confirmation with 3 seconds; process-scoped TCP lifetime. No new chat-consent requirement or persistent auto-approval. Sandbox, read-only, disabled-tool and audit controls remain.
+Automatic Release 8080 → 8888 → 8880 → 8088; Dev 8081 → 8889 → 8083 → 8891; no start/stop OK dialogs; process-scoped TCP lifetime. One default-on process-local automatic-execution policy covers ordinary operations and C#: ON has no approval windows or countdowns, OFF requires manual confirmation. No new chat-consent requirement or persisted approval setting. Sandbox, read-only, disabled-tool and audit controls remain.
 
 ## Verification
 

@@ -1,5 +1,7 @@
 > Этот документ описывает предыдущую версию guidance.4. Для проверки программных запретов guard.5 используйте [новое задание](family-editing-guard-review.md).
 
+> Historical review. Approval/countdown descriptions below refer to the reviewed build. Current policy (2026-10-21): default-on process-local automatic execution, no approval window or countdown when ON; manual confirmation when OFF. See [current release review](ribbon-activity-review.md).
+
 # Проверка Claude: исправление инструкции EditFamily
 
 Дата: 2026-10-08.

@@ -16,7 +16,7 @@ namespace RevitCortex.Tests.Threading;
 /// 2. Result was assigned outside _stateLock after an unlocked _executionId read,
 ///    so a concurrent timeout+prepare could interleave between check and write.
 /// 3. A result discarded by the generation guard (tool completed after the
-///    dispatcher timeout) was dropped with no trace â€” the model had changed but
+///    dispatcher timeout) was dropped with no trace — the model had changed but
 ///    the caller saw Timeout. It is now recorded in the audit log.
 /// </summary>
 public class ThreadingRaceFixSourceTests

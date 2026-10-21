@@ -14,12 +14,12 @@ public partial class CriticalConfirmationWindow : Window
     {
         InitializeComponent();
         InstructionText.Text = $"Операция: {action}. Элементов: {elementCount}.";
-        DescriptionText.Text = description ?? "Эта операция может изменить активную модель Revit.";
+        DescriptionText.Text = string.IsNullOrWhiteSpace(description)
+            ? "Эта операция может изменить активную модель Revit." : description;
     }
     private void Window_Loaded(object sender, RoutedEventArgs e) => _lifecycle.MarkLoaded();
     private void Yes_Click(object sender, RoutedEventArgs e) => Finish(true);
     private void No_Click(object sender, RoutedEventArgs e) => Finish(false);
-    private void AllowOnce_Click(object sender, RoutedEventArgs e) => Finish(true);
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Escape) return;

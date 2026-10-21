@@ -1,5 +1,7 @@
 # Confirmation crash fix — 2026-09-25
 
+> Historical review. Approval/countdown descriptions below refer to the reviewed build. Current policy (2026-10-21): default-on process-local automatic execution, no approval window or countdown when ON; manual confirmation when OFF. See [current release review](ribbon-activity-review.md).
+
 Build ID: `2026.09.26-confirmation-timeout.3`. This revision includes the earlier bounded script-result projector and transaction warning capture and error rollback handler.
 
 ## Confirmed failure and repair

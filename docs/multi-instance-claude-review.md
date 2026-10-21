@@ -1,5 +1,7 @@
 # Проверка четырёх экземпляров Revit и запуска без документа
 
+> Historical review. Approval/countdown descriptions below refer to the reviewed build. Current policy (2026-10-21): default-on process-local automatic execution, no approval window or countdown when ON; manual confirmation when OFF. See [current release review](ribbon-activity-review.md).
+
 Дата: 2026-10-09. Сборка: `2026.10.09-multi-instance.8`.
 Ветка: `fix/per-instance-revit-port`. PR: [#2](https://github.com/AlexFspb/RevitCortex/pull/2).
 База этого изменения: `d4524ee9b64a2e69503b9adbf9b3510c421efc1d`.

@@ -44,6 +44,29 @@ public static class IconFactory
         });
     }
 
+    /// <summary>Automatic execution state: play when enabled, pause when disabled.</summary>
+    public static BitmapSource CreateAutomaticExecutionIcon(int size, bool enabled)
+        => CreateIconWithDrawing(size, enabled ? ActiveGreen : InactiveGray, (dc, s) =>
+        {
+            if (enabled)
+            {
+                var play = new StreamGeometry();
+                using (var ctx = play.Open())
+                {
+                    ctx.BeginFigure(new Point(s * 0.32, s * 0.22), true, true);
+                    ctx.LineTo(new Point(s * 0.76, s * 0.50), true, false);
+                    ctx.LineTo(new Point(s * 0.32, s * 0.78), true, false);
+                }
+                play.Freeze();
+                dc.DrawGeometry(Brushes.White, null, play);
+            }
+            else
+            {
+                dc.DrawRectangle(Brushes.White, null, new Rect(s * 0.28, s * 0.24, s * 0.16, s * 0.52));
+                dc.DrawRectangle(Brushes.White, null, new Rect(s * 0.56, s * 0.24, s * 0.16, s * 0.52));
+            }
+        });
+
     /// <summary>Panel icon: chat bubble on indigo background.</summary>
     public static BitmapSource CreatePanelIcon(int size)
     {

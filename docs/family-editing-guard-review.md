@@ -1,5 +1,7 @@
 # Проверка Claude: программные запреты для EditFamily
 
+> Historical review. Approval/countdown descriptions below refer to the reviewed build. Current policy (2026-10-21): default-on process-local automatic execution, no approval window or countdown when ON; manual confirmation when OFF. See [current release review](ribbon-activity-review.md).
+
 Актуальная проверка: [исправления review.6](family-editing-review6.md). Ниже сохранён отчёт о guard.5.
 
 Дата: 2026-10-08. Сборка: `2026.10.08-family-edit-guard.5`.

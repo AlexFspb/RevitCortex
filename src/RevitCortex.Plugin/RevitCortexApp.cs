@@ -280,8 +280,8 @@ public class RevitCortexApp : IExternalApplication
     {
         if (_automaticButton == null) return;
         _automaticButton.ItemText = AutomaticExecutionEnabled ? "Автовыполнение\r\nВКЛ" : "Автовыполнение\r\nВЫКЛ";
-        _automaticButton.Image = IconFactory.CreateConnectionIcon(16, AutomaticExecutionEnabled);
-        _automaticButton.LargeImage = IconFactory.CreateConnectionIcon(32, AutomaticExecutionEnabled);
+        _automaticButton.Image = IconFactory.CreateAutomaticExecutionIcon(16, AutomaticExecutionEnabled);
+        _automaticButton.LargeImage = IconFactory.CreateAutomaticExecutionIcon(32, AutomaticExecutionEnabled);
         _automaticButton.ToolTip = "Скрипты и изменяющие операции без окна подтверждения. Только этот экземпляр Revit. Проверки безопасности сохраняются.";
     }
 

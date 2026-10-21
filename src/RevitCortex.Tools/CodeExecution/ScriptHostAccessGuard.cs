@@ -22,8 +22,13 @@ internal static class ScriptHostAccessGuard
                 var type = target as INamedTypeSymbol ?? target.ContainingType;
                 if (type == null || SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, compilation.Assembly)) continue;
                 var ns = type.ContainingNamespace.ToDisplayString();
-                if (ns != "RevitCortex" && !ns.StartsWith("RevitCortex.")) continue;
                 var name = type.OriginalDefinition.ToDisplayString();
+                // Posted ribbon commands run after the script returns. They must not be
+                // able to toggle host policy outside the guarded execution lifetime.
+                var ribbonAccess = ns == "Autodesk.Windows" || ns.StartsWith("Autodesk.Windows.")
+                    || name == "Autodesk.Revit.UI.RevitCommandId"
+                    || (name == "Autodesk.Revit.UI.UIApplication" && target.Name == "PostCommand");
+                if (!ribbonAccess && ns != "RevitCortex" && !ns.StartsWith("RevitCortex.")) continue;
                 if (name is "RevitCortex.Tools.CodeExecution.FamilyLoadPolicy"
                     or "RevitCortex.Tools.CodeExecution.ScriptFailureHandling"
                     or "RevitCortex.Tools.CodeExecution.ScriptFailureHandling.FailureCapture"
@@ -33,7 +38,8 @@ internal static class ScriptHostAccessGuard
                     or "RevitCortex.Core.Results.CortexError"
                     or "RevitCortex.Core.Results.CortexErrorCode") continue;
                 var line = node.GetLocation().GetLineSpan().StartLinePosition.Line + 1 - prefixLines;
-                errors.Add($"CORTEX_HOST_ACCESS: Line {line}: Scripts cannot access {name}. Host settings and approval controls are not script APIs.");
+                var denied = ribbonAccess ? target.ToDisplayString() : name;
+                errors.Add($"CORTEX_HOST_ACCESS: Line {line}: Scripts cannot access {denied}. Host settings, approval controls and posted UI commands are not script APIs. Use direct Revit model APIs or dedicated Cortex tools.");
             }
         }
         return errors.ToArray();
