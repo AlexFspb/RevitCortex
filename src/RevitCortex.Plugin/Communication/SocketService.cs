@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -37,9 +38,10 @@ public class SocketService
     public int StartOnFirstAvailablePort(params int[] ports)
     {
         if (_isRunning) return _port;
-        // Once assigned, keep the port through Stop/Start for this process.
-        // Never silently move an existing client to another instance's port.
-        var candidates = HasBoundPort ? new[] { _port } : ports;
+        // Prefer the previous assignment, but automatic callers may recover on another candidate.
+        // Start() supplies only _port, so explicit launcher overrides never fall back.
+        // MCP clients remain fixed to their configured port and validate instance identity.
+        var candidates = (HasBoundPort ? ports.Prepend(_port) : ports).Distinct().ToArray();
         SocketException? lastError = null;
         foreach (var port in candidates)
         {

@@ -8,6 +8,17 @@ namespace RevitCortex.Tests.Session;
 public class ConnectionIdentityTests
 {
     [Fact]
+    public void ReassignedPortInvalidatesPreviousTargetToken()
+    {
+        var session = new CortexSession(new SessionStore()) { BridgePort = 8880 };
+        var expected = session.ConnectionStatus();
+        session.BridgePort = 8888;
+        Assert.False(session.MatchesTarget(expected));
+        Assert.True(session.MatchesTarget(session.ConnectionStatus()));
+        Assert.Equal(8888, session.ConnectionStatus().Value<int>("bridgePort"));
+    }
+
+    [Fact]
     public void CachedStatusRespectsDisabledToolSetting()
     {
         var router = new CortexRouter(new CortexSession(new SessionStore()), new Router.FakeAnalyzer());

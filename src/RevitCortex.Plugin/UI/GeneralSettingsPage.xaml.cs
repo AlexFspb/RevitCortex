@@ -336,7 +336,7 @@ public partial class GeneralSettingsPage : Page
         PortTextBox.IsReadOnly = true;
         PortHelpText.Text = app?.IsPortOverridden == true
             ? "Set by this Revit's launcher. Restart with another launcher port to change it."
-            : $"Automatic: first free port, {string.Join(" then ", RevitCortex.Core.Hosting.CortexPort.AutomaticPorts(CortexEnvironment.Current.IsDev))}. Assigned when Cortex Switch starts.";
+            : $"Automatic: first free port, {string.Join(" then ", RevitCortex.Core.Hosting.CortexPort.AutomaticPorts(CortexEnvironment.Current.IsDev))}. On restart, keeps the previous port if free; otherwise selects another free port.";
         PortTextBox.ToolTip = "This port is not saved to the shared settings file.";
     }
 

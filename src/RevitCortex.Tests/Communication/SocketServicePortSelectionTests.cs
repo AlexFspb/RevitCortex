@@ -141,7 +141,7 @@ public class SocketServicePortSelectionTests
     }
 
     [Fact]
-    public void AssignedPortTakenDuringStop_DoesNotSilentlyMoveToOtherFreePort()
+    public void AutomaticRestart_WhenPreviousPortIsTaken_UsesFallbackAndKeepsNewAssignment()
     {
         var ports = ReserveThenReleaseTwoPorts();
         var service = CreateService();
@@ -152,10 +152,53 @@ public class SocketServicePortSelectionTests
             Assert.Equal(ports[0], service.StartOnFirstAvailablePort(ports));
             service.Stop();
             competingListener.Start();
-            Assert.Throws<InvalidOperationException>(() => service.StartOnFirstAvailablePort(ports));
-            Assert.False(service.IsRunning);
+            Assert.Equal(ports[1], service.StartOnFirstAvailablePort(ports));
+            Assert.True(service.IsRunning);
+            service.Stop();
             competingListener.Stop();
-            Assert.Equal(ports[0], service.StartOnFirstAvailablePort(ports));
+            Assert.Equal(ports[1], service.StartOnFirstAvailablePort(ports));
+        }
+        finally { service.Stop(); }
+    }
+
+    [Fact]
+    public void FixedStart_WhenPortIsTaken_DoesNotFallBack()
+    {
+        var ports = ReserveThenReleaseTwoPorts();
+        var service = new SocketService(new CortexRouter(new CortexSession(new SessionStore()), new Router.FakeAnalyzer()), ports[0]);
+        using var competitor = new TcpListener(IPAddress.Loopback, ports[0]);
+        competitor.ExclusiveAddressUse = true;
+        try
+        {
+            service.Start(); service.Stop(); competitor.Start();
+            var error = Assert.Throws<InvalidOperationException>(() => service.Start());
+            Assert.Contains($"TCP port(s) {ports[0]} are unavailable", error.Message);
+            Assert.False(service.IsRunning);
+            // The other candidate really is available, but fixed Start never tries it.
+            using var free = new TcpListener(IPAddress.Loopback, ports[1]);
+            free.ExclusiveAddressUse = true; free.Start();
+            competitor.Stop(); service.Start(); Assert.True(service.IsRunning);
+        }
+        finally { service.Stop(); }
+    }
+
+    [Fact]
+    public void AutomaticRestart_AllPortsTaken_ReportsAllCandidatesAndCanRetry()
+    {
+        var ports = ReserveThenReleaseTwoPorts();
+        var service = CreateService();
+        using var first = new TcpListener(IPAddress.Loopback, ports[0]);
+        using var second = new TcpListener(IPAddress.Loopback, ports[1]);
+        first.ExclusiveAddressUse = second.ExclusiveAddressUse = true;
+        try
+        {
+            Assert.Equal(ports[0], service.StartOnFirstAvailablePort(ports)); service.Stop();
+            first.Start(); second.Start();
+            var error = Assert.Throws<InvalidOperationException>(() => service.StartOnFirstAvailablePort(ports));
+            Assert.Contains($"TCP port(s) {ports[0]}, {ports[1]} are unavailable", error.Message);
+            Assert.False(service.IsRunning); Assert.True(service.HasBoundPort);
+            second.Stop();
+            Assert.Equal(ports[1], service.StartOnFirstAvailablePort(ports));
         }
         finally { service.Stop(); }
     }
