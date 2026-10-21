@@ -46,9 +46,12 @@ public class SendCodeDescriptionTests
     }
 
     [Fact]
-    public void ServerDescription_RequiresExplicitUserConsent()
+    public void ServerDescription_PreservesAutonomousWorkAndExplainsResultFailures()
     {
-        Assert.Contains("consent", ServerToolDescription(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no separate chat approval", ServerToolDescription(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ResultSerializationFailed", ServerToolDescription());
+        Assert.Contains("transactionState", ServerToolDescription());
+        Assert.DoesNotContain("obtaining explicit user consent", ServerToolDescription());
     }
 
     [Fact]
@@ -60,11 +63,52 @@ public class SendCodeDescriptionTests
     }
 
     [Fact]
-    public void ServerDescription_DoesNotSteerToModalFamilyEditing()
+    public void ServerDescription_ExplainsFamilyEditingPreconditionsAndLimits()
     {
-        // Document.EditFamily deadlocks from the tool's external-event context, so the
-        // description must not advertise family-internal editing as a valid escalation.
-        Assert.DoesNotContain("editing a family's internal definition", ServerToolDescription());
+        AssertFamilyEditingGuidance(ServerToolDescription());
+    }
+
+    [Fact]
+    public void ServerInstructions_ExplainFamilyEditingPreconditionsAndLimits()
+    {
+        AssertFamilyEditingGuidance(ReadSource("RevitCortex.Server", "Program.cs"));
+    }
+
+    [Fact]
+    public void PluginDescription_ExplainsFamilyEditingPreconditionsAndLimits()
+    {
+        AssertFamilyEditingGuidance(ReadSource("RevitCortex.Tools", "Elements", "SendCodeToRevitTool.cs"));
+    }
+
+    private static void AssertFamilyEditingGuidance(string text)
+    {
+        Assert.Contains("strictWarnings=true", text);
+        Assert.Contains("before confirmation and persistence", text);
+        Assert.Contains("Document.EditFamily is supported in a valid ExternalEvent API context", text);
+        Assert.Contains("transactionMode=none, not auto/group", text);
+        Assert.Contains("IsModifiable=false", text);
+        Assert.Contains("IsReadOnly=false", text);
+        Assert.Contains("family ownership", text);
+        Assert.Contains("IsEditable=true", text);
+        Assert.Contains("IsInPlace=false", text);
+        Assert.Contains("never call during dynamic update", text);
+        Assert.Contains("failure handling configured before changes", text);
+        Assert.Contains("finally", text);
+        Assert.Contains("IFamilyLoadOptions", text);
+        Assert.Contains("FamilyLoadPolicy", text);
+        Assert.Contains("rollbackOnWarnings: true", text);
+        Assert.Contains("none/group", text);
+        Assert.Contains("capture.Failures", text);
+        Assert.Contains("capture.OmittedFailures", text);
+        Assert.Contains("capture.DiagnosticReportPath", text);
+        Assert.Contains("Close(false)", text);
+        Assert.Contains("OverwriteExistingFile=false", text);
+        Assert.Contains("Cortex workflow rule", text);
+        Assert.Contains("materialized plain data", text);
+        Assert.Contains("none cannot roll back earlier commits", text);
+        Assert.Contains("a timeout does not abort running Revit code", text);
+        Assert.DoesNotContain("Document.EditFamily deadlocks", text);
+        Assert.DoesNotContain("Never use Document.EditFamily", text);
     }
 
     [Fact]

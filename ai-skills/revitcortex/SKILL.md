@@ -5,6 +5,8 @@ description: Use for RevitCortex 2026 operations, MCP tool workflows, Revit mode
 
 # RevitCortex 2026 Skill Router
 
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Automatic listener restart prefers its previous port, then tries the other profile ports if that port is occupied. Explicit REVITCORTEX_PORT stays fixed; MCP clients never switch ports automatically. Release selects 8080 → 8888 → 8880 → 8088; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Automatic execution defaults to ON at every Revit launch for scripts and ordinary operations. The ribbon toggle and General Settings control one process-local policy. When ON there are no approval windows or countdowns; when OFF manual per-request confirmation remains. Orange indicates C# execution; blue indicates other tool execution. UI-thread work can pause blinking. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+
 This fork supports **Autodesk Revit 2026 only**. Do not apply upstream R23/R24/R25/R27 build instructions to this repository.
 
 ## Always-on rules
@@ -29,16 +31,21 @@ This fork supports **Autodesk Revit 2026 only**. Do not apply upstream R23/R24/R
 | Power BI | `operator_01`, `operator_08` |
 | Obsidian / knowledge | `operator_09` |
 | Custom C# script | `operator_10` |
+| Loaded-family editing | `operator_10`, `operator_11` |
 | New C# tool | `developer_20`, `developer_21`, `developer_22`, `developer_25` |
 | Build / C# failure | `developer_22`, `developer_25` |
 | Dynamic tools | `developer_23` |
 | Security / audit | `developer_24` |
 
-## Script confirmation in this fork
+## Automatic execution in this fork
 
-Critical C# execution uses the RevitCortex confirmation window. `Allow auto-run` is optional and session-only. When enabled, a visible **10-second countdown** auto-approves the script unless the user presses No or closes the dialog. The setting resets when Revit closes.
+The ribbon **Автовыполнение** toggle and **Settings → General → Автоматическое выполнение** share one process-local policy. It defaults to ON at each Revit launch, as explicitly requested by the user on 2026-10-21. Switching documents does not reset it. Nothing is persisted to settings.json and other Revit processes are unaffected.
 
-This does not disable sandbox validation, audit logging, read-only protection, or the rule to prefer dedicated tools.
+When ON, scripts and ordinary operations pass the host approval step immediately, without windows, countdowns or focus changes. When OFF, ordinary modifying operations use Allow once and critical C# uses Yes/No; X/Escape cancels. Read-only tools retain their existing confirmation requirements (normally none).
+
+Cortex Switch is gray when stopped, green when idle, orange while handling C# and blue while handling other ExternalEvent tools. Busy icons alternate bright/dim when the UI Dispatcher is available. Long synchronous Revit work may pause both blinking and repaint; this is not a liveness or progress guarantee. No nested message pump, screen access or window activation is used. Connection probes do not blink. The indicator clears when the handler actually finishes, not when the MCP caller times out.
+
+Sandbox checks, EnableCodeExecution, disabled tools, read-only mode, context checks, expiration and audit remain mandatory. Scripts cannot change host controls. Do not reintroduce per-dialog automatic approval or chat approval for already authorized work.
 
 ## Reference usage
 
@@ -51,3 +58,5 @@ This does not disable sandbox validation, audit logging, read-only protection, o
 
 - `index_40_Tool_Signature_Index.md`: quick tool-signature lookup; `tool-schemas.txt` is canonical.
 - `index_41_Workflow_Source_Map.md`: workflow source map.
+
+Document closure no longer stops an enabled Cortex server. Background families do not replace the active UI document. With no active document, inspect get_connection_status or say_hello. The first C# request can prepare a service project; never substitute it for a named working project. A command cancelled because its document changed must not be blindly retried: verify the active project first.

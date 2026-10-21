@@ -56,7 +56,8 @@ public class ToolCatalogParitySourceTests
         Assert.NotEmpty(pluginNames);
 
         var missing = mcpNames
-            .Where(name => !pluginNames.Contains(name))
+            // This read-only tool discovers several endpoints in the MCP server; it has no per-Revit implementation.
+            .Where(name => name != "list_revit_instances" && !pluginNames.Contains(name))
             .OrderBy(name => name)
             .ToList();
 

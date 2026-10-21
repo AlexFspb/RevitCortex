@@ -19,6 +19,7 @@
 | `operator_08_PowerBI_Workflows.md` | Push elements/schedules, query, selection roundtrip |
 | `operator_09_Obsidian_Workflows.md` | Vault snapshot, command note, write-back |
 | `operator_10_SendCodeToRevit_Escalation.md` | Quando proporre script vs tool nativo |
+| `operator_11_Family_Editing.md` | Revit 2026: EditFamily, transactions, cleanup and reload |
 
 ### Developer (sviluppo C# RevitCortex)
 | File | Quando usare |

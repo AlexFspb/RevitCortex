@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -13,68 +14,148 @@ namespace RevitCortex.Plugin.Communication;
 
 public class SocketService
 {
+    private readonly object _lifecycleLock = new();
+    private readonly Action<int>? _boundPort;
     private TcpListener? _listener;
     private volatile bool _isRunning;
     private Thread? _listenerThread;
     private readonly CortexRouter _router;
-    private readonly int _port;
+    private int _port;
     private readonly ConcurrentDictionary<TcpClient, byte> _activeClients = new();
 
     public bool IsRunning => _isRunning;
+    public bool HasBoundPort { get; private set; }
 
-    public SocketService(CortexRouter router, int port = 8080)
+    public SocketService(CortexRouter router, int port = 8080, Action<int>? boundPort = null)
     {
         _router = router;
+        _boundPort = boundPort;
         _port = port;
     }
 
     public void Start()
     {
-        if (_isRunning) return;
-        _listener = new TcpListener(IPAddress.Loopback, _port);
-        _listener.Start();
-        _isRunning = true;
-        _listenerThread = new Thread(ListenForClients) { IsBackground = true };
-        _listenerThread.Start();
+        StartOnFirstAvailablePort(_port);
     }
 
-    public void Stop()
+    public int StartOnFirstAvailablePort(params int[] ports)
     {
-        _isRunning = false;
-        _listener?.Stop();
-
-        // Close the active client connections too: a connection accepted before
-        // Stop() would otherwise keep serving requests — e.g. stale commands
-        // reaching a document that OnDocumentClosing is tearing down.
-        foreach (var client in _activeClients.Keys)
-        {
-            try { client.Close(); } catch { /* already gone */ }
-        }
-        _activeClients.Clear();
+        lock (_lifecycleLock) return StartLocked(ports);
     }
 
-    private void ListenForClients()
+    private int StartLocked(int[] ports)
     {
-        while (_isRunning)
+        if (_isRunning) return _port;
+        // Prefer the previous assignment, but automatic callers may recover on another candidate.
+        // Start() supplies only _port, so explicit launcher overrides never fall back.
+        // MCP clients remain fixed to their configured port and validate instance identity.
+        var candidates = (HasBoundPort ? ports.Prepend(_port) : ports).Distinct().ToArray();
+        SocketException? lastError = null;
+        foreach (var port in candidates)
         {
+            var listener = new TcpListener(IPAddress.Loopback, port);
             try
             {
-                var client = _listener!.AcceptTcpClient();
-                var thread = new Thread(HandleClient) { IsBackground = true };
-                thread.Start(client);
-            }
-            catch (SocketException) when (!_isRunning)
-            {
-                // Normal shutdown via Stop() — exit cleanly.
-                break;
+                listener.ExclusiveAddressUse = true;
+                // Binding is the availability check and reservation, atomically.
+                StartListener(listener);
+                _listener = listener;
+                _isRunning = true;
+                _boundPort?.Invoke(port); // Identity must be ready before the first accepted request.
+                _listenerThread = new Thread(() => ListenForClients(listener)) { IsBackground = true };
+                StartListenerThread(_listenerThread);
+                // Commit the assignment only after the entire startup succeeds.
+                _port = port;
+                HasBoundPort = true;
+                return _port;
             }
             catch (Exception ex)
             {
-                // Unexpected listener crash — reset flag so IsRunning reflects reality.
                 _isRunning = false;
-                System.Diagnostics.Trace.WriteLine(
-                    $"[RevitCortex] Listener crashed unexpectedly: {ex.Message}");
-                break;
+                try { listener.Stop(); }
+                catch (Exception stopError)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RevitCortex] Listener cleanup failed: {stopError.Message}");
+                }
+                _listener = null;
+                _listenerThread = null;
+                if (ex is SocketException socketError &&
+                    (socketError.SocketErrorCode == SocketError.AddressAlreadyInUse ||
+                     socketError.SocketErrorCode == SocketError.AccessDenied))
+                {
+                    lastError = socketError;
+                    continue;
+                }
+                throw;
+            }
+        }
+        throw new InvalidOperationException(
+            $"Cannot start Cortex: TCP port(s) {string.Join(", ", candidates)} are unavailable. " +
+            "Stop the conflicting service or launch Revit with an explicit REVITCORTEX_PORT.", lastError);
+    }
+
+    // Fault-injection seams also exercise failures after a successful bind.
+    protected virtual void StartListener(TcpListener listener) => listener.Start();
+    protected virtual void StartListenerThread(Thread thread) => thread.Start();
+
+    public void Stop()
+    {
+        Thread? thread;
+        lock (_lifecycleLock)
+        {
+            _isRunning = false;
+            _listener?.Stop();
+            _listener = null;
+            thread = _listenerThread;
+            _listenerThread = null;
+            CloseClients();
+        }
+        // Never join under the lock: the exiting accept loop also uses it.
+        if (thread != Thread.CurrentThread) thread?.Join(1000);
+    }
+
+    private void CloseClients()
+    {
+        foreach (var client in _activeClients.Keys)
+            try { client.Close(); } catch { }
+        _activeClients.Clear();
+    }
+
+    protected virtual TcpClient AcceptClient(TcpListener listener) => listener.AcceptTcpClient();
+
+    private void ListenForClients(TcpListener listener)
+    {
+        try
+        {
+            while (_isRunning && ReferenceEquals(_listener, listener))
+            {
+                var client = AcceptClient(listener);
+                lock (_lifecycleLock)
+                {
+                    if (!_isRunning || !ReferenceEquals(_listener, listener)) { client.Dispose(); return; }
+                    _activeClients.TryAdd(client, 0);
+                    try { new Thread(HandleClient) { IsBackground = true }.Start(client); }
+                    catch { _activeClients.TryRemove(client, out _); client.Dispose(); throw; }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            lock (_lifecycleLock)
+            {
+                // A stopped generation must never stop a replacement listener.
+                if (ReferenceEquals(_listener, listener))
+                {
+                    try { listener.Stop(); }
+                    catch (Exception stopError) { System.Diagnostics.Trace.WriteLine($"[RevitCortex] Listener cleanup: {stopError}"); }
+                    finally
+                    {
+                        _listener = null;
+                        CloseClients();
+                        _isRunning = false;
+                    }
+                    System.Diagnostics.Trace.WriteLine($"[RevitCortex] Listener crashed: {ex}");
+                }
             }
         }
     }
@@ -82,7 +163,6 @@ public class SocketService
     private void HandleClient(object? state)
     {
         var client = (TcpClient)state!;
-        _activeClients.TryAdd(client, 0);
         // Covers the accept-vs-Stop race: a client registered after Stop()'s
         // sweep must not survive it.
         if (!_isRunning)

@@ -1,5 +1,7 @@
 # RevitCortex 2026 — Operational Workflows
 
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Release selects 8080 → 8888 → 8880 → 8088; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Critical C# auto-run now defaults to ON at each Revit launch, independently of ordinary auto-run; both retain the visible 3-second countdown, cancellation and process-local opt-out. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+
 This file contains the current recommended workflows for the **Autodesk Revit 2026** fork.
 
 The exact MCP tool catalog changes over time; `tool-schemas.txt` is the technical source of truth. These workflows describe how tools should be combined safely and efficiently.
@@ -117,7 +119,12 @@ read/identify targets
 
 RevitCortex must not report success when Revit rolls back the transaction.
 
-Normal destructive confirmations may use the existing Yes / Yes to All / Auto controls. This is separate from the critical custom-C# confirmation described below.
+Normal destructive confirmations use one Allow once button and an auto-run
+checkbox, checked by default when Revit starts. Every request gets its own
+3-second countdown. Uncheck to wait for manual approval; X/Escape cancels the
+current request. The normal preference is process-only. The old Yes to All and
+unlimited Auto choices and floating status window are removed. Critical custom-C#
+confirmation below has its own independent, initially unchecked preference.
 
 ---
 
@@ -142,7 +149,7 @@ Available globals:
 - `uiDocument`
 - `app`
 
-Do not call modal family-editing workflows such as `Document.EditFamily` from the MCP external-event context.
+`Document.EditFamily` is supported in a valid ExternalEvent API context; it is not inherently a modal UI command. Cortex rejects script entry with an open transaction and instruments direct EditFamily calls with runtime precondition checks. Unsupported delegate/conditional call forms fail before execution. ScriptPreconditionFailed reports whether script execution began; earlier effects are not claimed rolled back. Custom family-edit scripts must use `transactionMode: "none"`, not `auto`/`group`. Check the source document and family preconditions; manage family transactions and cleanup. Use the shipped FamilyLoadPolicy with both choices explicit, and Configure(tx, rollbackOnWarnings: true) for strict tasks. In none/group return capture diagnostics yourself; check the Close(false) boolean result. SaveAs uses a literal path in an existing folder; filesystem/backup checks stay outside the sandbox. Never invoke interactive editor/dialog flows. `none` does not provide a cross-document/file rollback. A timeout does not abort running API code. See [family editing](docs/family-editing.md). Compiler checks run once before confirmation and script persistence. In auto, use strictWarnings=true for tasks requiring rollback on warnings (default false). This flag is rejected in none/group; configure each owned transaction with rollbackOnWarnings: true instead.
 
 ### Critical confirmation / Allow auto-run
 
@@ -152,7 +159,7 @@ For custom C# execution, the Revit 2026 fork shows a dedicated critical confirma
 - **No** → cancel
 - **Allow auto-run** → enable session-only timed approval
 
-When **Allow auto-run** is enabled, the Yes action visibly counts down from **10 seconds**. At zero, the current script is approved automatically. Manual Yes and No remain available during the countdown.
+When **Allow auto-run** is enabled, the Yes action visibly counts down from **3 seconds**. At zero, the current script is approved automatically. Manual Yes and No remain available during the countdown.
 
 The preference remains active for later critical C# confirmations in the same Revit process and resets when Revit closes.
 

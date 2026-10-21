@@ -21,7 +21,7 @@ public class GetProjectInfoTool : ICortexTool, ICacheableTool
     public string Category => "Project";
     public bool RequiresDocument => true;
     public bool IsDynamic => false;
-    public string Description => "Returns comprehensive project metadata: name, address, author, phases, worksets, Revit links, and levels.";
+    public string Description => "Returns port/PID/instance/document identity and service-project flag, plus project name, address, author, phases, worksets, links and levels.";
     public CacheScope CacheScope => CacheScope.Document;
     public CortexResult<object> Execute(JObject input, CortexSession session)
     {
@@ -52,6 +52,12 @@ public class GetProjectInfoTool : ICortexTool, ICacheableTool
                 ["filePath"]                 = doc.PathName ?? "",
                 ["isWorkshared"]             = doc.IsWorkshared
             };
+
+            session.UpdateDocumentTitle(doc.Title);
+            foreach (var field in session.ConnectionStatus().Properties()) result[field.Name] = field.Value;
+            result["activeDocumentTitle"] = doc.Title;
+            result["activeDocumentPath"] = doc.PathName ?? "";
+            result["snapshotOnly"] = false;
 
             if (includePhases)
             {

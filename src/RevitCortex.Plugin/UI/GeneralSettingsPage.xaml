@@ -18,6 +18,10 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,10">
             <TextBlock Text="General Settings" FontSize="22" FontWeight="SemiBold" Foreground="#333"/>
             <TextBlock Text="Configure RevitCortex for Autodesk Revit 2026" Foreground="#666" Margin="0,5,0,0"/>
+            <CheckBox x:Name="AutomaticExecutionCheckBox" Content="Автоматическое выполнение" Margin="0,12,0,0"
+                      Checked="AutomaticExecutionChanged" Unchecked="AutomaticExecutionChanged"/>
+            <TextBlock Text="Без окон подтверждения и задержки. Только этот Revit. При запуске включено."
+                       TextWrapping="Wrap" Foreground="#666" Margin="0,4,0,0"/>
         </StackPanel>
 
         <!-- Connection Status Banner -->
@@ -110,7 +114,7 @@
                 <!-- Port -->
                 <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,10" VerticalAlignment="Center">
                     <TextBlock Text="Server Port" FontSize="14" FontWeight="SemiBold" Foreground="#333"/>
-                    <TextBlock Text="TCP port (requires restart)" FontSize="11" Foreground="#666" Margin="0,3,0,0"/>
+                    <TextBlock x:Name="PortHelpText" Text="Automatic: 8080, then 8888" TextWrapping="Wrap" FontSize="11" Foreground="#666" Margin="0,3,0,0"/>
                 </StackPanel>
                 <TextBox x:Name="PortTextBox" Grid.Row="0" Grid.Column="1"
                          Margin="15,10,0,10" Padding="8,6" FontSize="14"

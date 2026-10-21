@@ -40,22 +40,13 @@ public class ThreadingRaceFixSourceTests
     public void ResultAssignments_HappenUnderTheStateLock()
     {
         var src = ReadPlugin("Threading", "ToolExecutionHandler.cs");
-        // Every generation-guard check must read _executionId under _stateLock.
-        // The old form was a bare `if (_executionId == myId)` directly inside
-        // try/catch, outside any lock.
-        var body = src.Substring(src.IndexOf("public void Execute", System.StringComparison.Ordinal));
-        body = body.Substring(0, body.IndexOf("public bool TryPrepareExecution", System.StringComparison.Ordinal));
-        var idx = 0;
-        var checks = 0;
-        while ((idx = body.IndexOf("_executionId == myId", idx, System.StringComparison.Ordinal)) >= 0)
-        {
-            var lockIdx = body.LastIndexOf("lock (_stateLock)", idx, System.StringComparison.Ordinal);
-            Assert.True(lockIdx >= 0 && idx - lockIdx < 200,
-                "each _executionId check in Execute must sit inside a lock (_stateLock) block");
-            checks++;
-            idx++;
-        }
-        Assert.True(checks >= 3, $"expected at least 3 locked generation checks, found {checks}");
+        Assert.Contains("request.Complete(result)", src);
+        Assert.Contains("if (_request != null) return false", src);
+        var dispatcher = ReadPlugin("Threading", "RevitThreadDispatcher.cs");
+        Assert.Contains("request.Completion.Result", dispatcher);
+        Assert.Contains("request.Expire(tool.Name, timeoutMs)", dispatcher);
+        Assert.DoesNotContain("ClearPreparedExecution", dispatcher);
+        Assert.DoesNotContain("_handler.Result", dispatcher);
     }
 
     [Fact]

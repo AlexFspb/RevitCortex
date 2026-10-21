@@ -1,0 +1,81 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Autodesk.Revit.DB;
+using Newtonsoft.Json;
+using RevitCortex.Core.Hosting;
+using RevitCortex.Core.Results;
+
+namespace RevitCortex.Tools.CodeExecution;
+
+/// <summary>Transaction-scoped warning capture and error rollback for autonomous scripts. No UI or automatic repair.</summary>
+public static class ScriptFailureHandling
+{
+    /// <summary>Call after Start and before model changes on EVERY script-owned transaction.</summary>
+    public static FailureCapture Configure(Transaction transaction) => Configure(transaction, rollbackOnWarnings: false);
+
+    /// <summary>Set rollbackOnWarnings=true for tasks requiring rollback on any warning as well as errors.</summary>
+    public static FailureCapture Configure(Transaction transaction, bool rollbackOnWarnings)
+    {
+        var capture = new FailureCapture(rollbackOnWarnings);
+        var options = transaction.GetFailureHandlingOptions();
+        options.SetFailuresPreprocessor(capture);
+        options.SetClearAfterRollback(true);
+        transaction.SetFailureHandlingOptions(options);
+        return capture;
+    }
+
+    public sealed class FailureCapture : IFailuresPreprocessor
+    {
+        // Only primitive data survives beyond PreprocessFailures, never FailureMessageAccessor or ElementId.
+        private readonly ScriptFailureReport _report = new();
+        private readonly bool _rollbackOnWarnings;
+        private bool ShouldRollBack => _report.RequiresRollback(_rollbackOnWarnings);
+        public FailureCapture() : this(false) { }
+        internal FailureCapture(bool rollbackOnWarnings) => _rollbackOnWarnings = rollbackOnWarnings;
+        public IReadOnlyList<Dictionary<string, object>> Failures => _report.Failures;
+        public int OmittedFailures => _report.OmittedFailures;
+        public string? DiagnosticReportPath { get; private set; }
+
+        public void AppendWarnings(Newtonsoft.Json.Linq.JObject response) =>
+            _report.AppendWarnings(response, DiagnosticReportPath);
+
+        public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
+        {
+            foreach (var failure in accessor.GetFailureMessages())
+            {
+                var severity = failure.GetSeverity();
+                if (severity == FailureSeverity.None) continue;
+                bool warning = _report.Record(severity.ToString(), failure.GetDescriptionText() ?? "",
+                    failure.GetFailingElementIds().Select(id => id.Value));
+                // Always process severity, even when diagnostic budgets have been exhausted.
+                if (warning && !_rollbackOnWarnings) accessor.DeleteWarning(failure);
+            }
+            if (_report.WarningCount > 0 || _report.HasErrors) SaveReport();
+            return ShouldRollBack ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;
+        }
+
+        public CortexResult<object> ToFailure(TransactionStatus status) =>
+            _report.ToFailure(status.ToString(), _rollbackOnWarnings, DiagnosticReportPath);
+
+        private void SaveReport()
+        {
+            try
+            {
+                var folder = Path.Combine(CortexEnvironment.Current.SupportReportsFolder, "script-failures");
+                Directory.CreateDirectory(folder);
+                var path = Path.Combine(folder, $"{DateTime.UtcNow:yyyyMMddTHHmmssfff}-{Environment.ProcessId}-{Guid.NewGuid():N}.json");
+                File.WriteAllText(path, JsonConvert.SerializeObject(new
+                {
+                    utc = DateTime.UtcNow, revitProcessId = Environment.ProcessId,
+                    action = ShouldRollBack ? "rollback_requested" : "warnings_removed",
+                    rollbackOnWarnings = _rollbackOnWarnings,
+                    failures = Failures, omittedFailures = OmittedFailures, warningCount = _report.WarningCount
+                }, Formatting.Indented));
+                DiagnosticReportPath = path;
+            }
+            catch { /* Diagnostics must not prevent rollback; absence is explicit in ToFailure. */ }
+        }
+    }
+}

@@ -1,5 +1,7 @@
 # RevitCortex 2026 — User Guide
 
+Revit 2026 multi-instance policy (2026-10-09): the server starts once automatically at the first Idling event, including empty Revit. Manual Stop stays off until manual Start or restart. Automatic listener restart prefers its previous port, then tries the other profile ports if that port is occupied. Explicit REVITCORTEX_PORT stays fixed; MCP clients never switch ports automatically. Release selects 8080 → 8888 → 8880 → 8088; Dev selects 8081 → 8889 → 8083 → 8891. Every MCP entry has an explicit fixed port; never fall back to another connection. Inspect get_connection_status/list_revit_instances for cached identity, then get_project_info or say_hello to verify the intended document. Automatic execution defaults to ON at every Revit launch for scripts and ordinary operations. The ribbon toggle and General Settings control one process-local policy. When ON there are no approval windows or countdowns; when OFF manual per-request confirmation remains. Orange indicates C# execution; blue indicates other tool execution. UI-thread work can pause blinking. No approval flags are persisted. The first C# request with no active document prepares a private metric service project. Never substitute that project for a user-named model. Shared settings must not be edited concurrently; temp scripts are isolated by process.
+
 > This fork is maintained for **Autodesk Revit 2026 only**.
 >
 > The exact MCP tool count is intentionally not hard-coded in this guide. The current executable tool catalog is defined by the C# MCP wrappers and `tool-schemas.txt`.
@@ -13,7 +15,7 @@ This is an unofficial, independently maintained fork of `LuDattilo/RevitCortex`.
 3. [Choosing the right tool](#choosing-the-right-tool)
 4. [Safe write workflow](#safe-write-workflow)
 5. [Custom C# execution](#custom-c-execution)
-6. [Allow auto-run and 10-second approval](#allow-auto-run-and-10-second-approval)
+6. [Automatic execution and activity](#automatic-execution-and-activity)
 7. [Settings](#settings)
 8. [Build and installation](#build-and-installation)
 9. [Troubleshooting](#troubleshooting)
@@ -25,7 +27,7 @@ This is an unofficial, independently maintained fork of `LuDattilo/RevitCortex`.
 
 1. Start **Autodesk Revit 2026** and open a project.
 2. Open the RevitCortex ribbon panel.
-3. Click **Cortex Switch** to start the local Revit bridge.
+3. Check **Cortex Switch**: green means the automatically started bridge is listening. Use it to start manually if stopped.
 4. Start an MCP-compatible client such as Claude Desktop, Claude Code, Codex, Cursor or another stdio MCP client configured for RevitCortex.
 5. Give the AI a normal-language instruction such as:
 
@@ -55,7 +57,8 @@ MCP client
   -> Autodesk Revit API
 ```
 
-The bridge is not started automatically. **Cortex Switch** controls whether the Revit-side service is listening.
+The bridge starts once at the first Idling event, including empty Revit. **Cortex Switch** controls manual start/stop; manual Stop remains off until Start or restart.
+Successful start/stop operations update the green/gray icon without an OK dialog.
 
 RevitCortex returns structured success/error responses instead of treating every failure as an opaque MCP exception.
 
@@ -115,7 +118,7 @@ Then, after inspecting the preview:
 Apply the change.
 ```
 
-RevitCortex also uses confirmation dialogs for destructive operations and checks Revit transaction commit status so a rollback is not reported as success.
+RevitCortex applies the automatic-execution policy to destructive-operation confirmation and checks transaction commit status so a rollback is not reported as success. Manual dialogs appear only when automatic execution is OFF.
 
 `dryRun` support is **partial**, not universal. In the structural-steel toolset, these write tools currently do **not** provide a preview/dry-run parameter and therefore confirm and then write directly:
 
@@ -138,7 +141,7 @@ Before a script can execute:
 1. **Custom C# execution must be enabled** in **Settings → Tools**.
 2. The script must pass the RevitCortex sandbox validation.
 3. Router permissions, user-selected read-only mode and disabled-tool settings remain active.
-4. Revit shows a **critical confirmation window**.
+4. Cortex applies the automatic-execution policy: ON approves without a window or delay; OFF shows a **critical confirmation window**.
 5. The invocation is recorded in the local audit trail.
 
 There is no Premium activation/license gate in this fork.
@@ -159,42 +162,32 @@ Avoid opening conflicting nested transactions when RevitCortex already owns the 
 
 ### Important limitation
 
-Do not use modal family-editing flows such as `Document.EditFamily` from the MCP external-event execution path. Modal Revit API flows can deadlock the request.
+`Document.EditFamily` is supported in a valid ExternalEvent API context; it is not inherently a modal UI command. Cortex rejects script entry with an open transaction and instruments direct EditFamily calls with runtime precondition checks. Unsupported delegate/conditional call forms fail before execution. ScriptPreconditionFailed reports whether script execution began; earlier effects are not claimed rolled back. Custom family-edit scripts must use `transactionMode: "none"`, not `auto`/`group`. Check the source document and family preconditions; manage family transactions and cleanup. Use the shipped FamilyLoadPolicy with both choices explicit, and Configure(tx, rollbackOnWarnings: true) for strict tasks. In none/group return capture diagnostics yourself; check the Close(false) boolean result. SaveAs uses a literal path in an existing folder; filesystem/backup checks stay outside the sandbox. Never invoke interactive editor/dialog flows. `none` does not provide a cross-document/file rollback. A timeout does not abort running API code. See [family editing](family-editing.md). Compiler checks run once before confirmation and script persistence. The first script may pause while Roslyn loads and compiles. Compilation precedes the approval decision; a manual window appears only when automatic execution is OFF. Scripts are saved only after successful compilation and confirmation; rejected scripts have no scriptPath, including reusable scripts. In auto, use strictWarnings=true for tasks requiring rollback on warnings (default false). This flag is rejected in none/group; configure each owned transaction with rollbackOnWarnings: true instead.
 
 ---
 
-## Allow auto-run and 10-second approval
+## Automatic execution and activity
 
-This fork changes the critical confirmation flow for custom C# scripts.
+Automatic execution is ON at each Revit launch. The ribbon **Автовыполнение** toggle and **Settings → General → Автоматическое выполнение** control the same process-local setting for ordinary tools and C#.
 
-The dialog contains:
+When ON, approval proceeds without a window, countdown or focus change. When OFF, ordinary modifying operations use **Allow once**, and critical C# uses **Yes/No**. Closing a manual dialog or pressing Escape cancels that request. Manual dialogs contain no automatic-approval checkbox or timer.
 
-- **Yes** — run immediately;
-- **No** — cancel;
-- **Allow auto-run** — optional automatic approval for the current Revit process.
+The setting is not saved to settings.json. Switching documents does not reset it; other Revit processes are unaffected. Restarting Revit enables it again. Turning it OFF affects subsequent approval decisions and does not abort a running script.
 
-When **Allow auto-run** is checked:
+Automatic execution does not bypass sandbox validation, EnableCodeExecution, read-only mode, disabled tools, document-context checks, expiration or audit logging.
 
-1. the Yes action changes to a visible countdown such as `Yes — auto approve in 10 s`;
-2. the counter decreases once per second;
-3. when it reaches zero, the current script is approved automatically;
-4. the user may still click **Yes** or **No** at any time;
-5. the option remains enabled for later critical script confirmations during the same Revit session;
-6. the option resets when Revit closes.
-
-The preference is deliberately **not written to `settings.json`**.
-
-Auto-run changes only the final critical approval step. It does **not** disable:
-
-- `EnableCodeExecution`;
-- sandbox validation;
-- user-selected read-only mode;
-- disabled-tool restrictions;
-- audit logging.
+The automatic-execution icon shows a green play symbol when ON and a gray pause symbol when OFF. Cortex Switch retains its lightning symbol: gray stopped, green idle, orange C# execution, blue other tool execution. Busy brightness alternates when the UI thread is available. Long synchronous operations can pause blinking and repaint; the indicator is not a progress or responsiveness guarantee.
 
 ---
 
 ## Settings
+
+For simultaneous Revit processes with separate AI clients, follow
+[Four Revit instances](MULTIPLE_REVIT_INSTANCES.md). Cortex automatically selects
+8080, 8888, 8880 or 8088 at automatic startup. Set the matching `REVITCORTEX_PORT` on each
+client's MCP server. The assigned port is read-only and is not saved into shared
+settings; the old saved `Port` value is ignored. Explicit launch overrides remain
+available when client roles must not depend on activation order.
 
 Open **RevitCortex → Settings**.
 
@@ -210,7 +203,7 @@ The Tools page lets you enable or disable individual tools.
 
 `send_code_to_revit` has a separate **Allow custom C# execution** gate and remains disabled by default until explicitly enabled.
 
-The page also explains the session-only **Allow auto-run** behavior and 10-second countdown.
+The page explains the process-local automatic-execution policy. Change it on the ribbon or in General Settings.
 
 ### Read-only mode
 
@@ -301,11 +294,11 @@ Open **Settings → Tools** and enable custom C# execution only if the task genu
 
 ### Script confirmation keeps appearing
 
-That is the normal critical-confirmation behavior. If you intentionally want hands-off approval during the current Revit session, check **Allow auto-run** in the critical dialog. Each critical script will then show a 10-second countdown before approval.
+Manual confirmation appears when automatic execution is OFF. Enable **Автовыполнение** on the ribbon or in General Settings for approval without windows or delay.
 
 ### Auto-run should stop
 
-Uncheck **Allow auto-run** in a critical confirmation dialog, or restart Revit. The preference is session-only.
+Turn OFF **Автовыполнение** on the ribbon or in General Settings. Subsequent requests require manual approval where applicable. This does not stop a running script. Restarting Revit enables automatic execution again.
 
 ### Diagnostic report
 
@@ -329,3 +322,5 @@ Use these sources:
 - [`../AGENTS.md`](../AGENTS.md) — current fork development and safety rules.
 
 Historical upstream design documents may still mention other Revit versions. For this fork, the current Revit 2026 source/project files and fork-specific documentation take precedence.
+
+Once enabled with Cortex Switch, Cortex remains connected when a family or project closes, even if no projects remain open. With no active document, model tools require a project; the first C# request can prepare a private service project as described above. Background families do not change the active MCP target. Commands waiting for a previous document are cancelled. Manual stop remains effective. Ordinary tools and C# share one process-local automatic-execution setting.
