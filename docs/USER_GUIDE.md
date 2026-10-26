@@ -176,7 +176,7 @@ The setting is not saved to settings.json. Switching documents does not reset it
 
 Automatic execution does not bypass sandbox validation, EnableCodeExecution, read-only mode, disabled tools, document-context checks, expiration or audit logging.
 
-The automatic-execution icon shows a green play symbol when ON and a gray pause symbol when OFF. Cortex Switch retains its lightning symbol: gray stopped, green idle, orange C# execution, blue other tool execution. Busy brightness alternates when the UI thread is available. Long synchronous operations can pause blinking and repaint; the indicator is not a progress or responsiveness guarantee.
+The automatic-execution icon shows a green play symbol when ON and a gray pause symbol when OFF. Cortex Switch retains its lightning symbol: gray stopped, green idle, orange C# activity, blue other incoming requests including connection checks. Brightness alternates every 300 ms when the UI thread is available. Short requests leave a 1.2-second activity pulse; the tooltip distinguishes recent traffic from active execution. Long synchronous operations can pause blinking and repaint; the indicator is not a progress or responsiveness guarantee. See [request activity](request-activity-review.md).
 
 ---
 

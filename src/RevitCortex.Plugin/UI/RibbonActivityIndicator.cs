@@ -3,41 +3,96 @@ using System.Windows.Threading;
 
 namespace RevitCortex.Plugin.UI;
 
-/// <summary>UI-thread-only indicator. No nested message pump, window, activation or Revit API from a worker.</summary>
+/// <summary>Coalesced socket notifications; all display changes stay on the UI dispatcher.</summary>
 internal sealed class RibbonActivityIndicator : IDisposable
 {
     private readonly DispatcherTimer _timer;
+    private readonly Dispatcher _dispatcher;
     private readonly Action _refresh;
-    public string? ToolName { get; private set; }
+    private readonly Func<long> _now;
+    private readonly object _pendingLock = new();
+    private string? _pendingRequest;
+    private bool _refreshQueued;
+    private volatile bool _disposed;
+    private string? _executingTool;
+    private string? _recentTool;
+    private long _recentUntil;
+    public string? ToolName => _executingTool ?? _recentTool;
+    public bool IsExecuting => _executingTool != null;
     public bool Dimmed { get; private set; }
 
-    public RibbonActivityIndicator(Action refresh)
+    public RibbonActivityIndicator(Action refresh, Func<long>? now = null)
     {
         _refresh = refresh;
-        _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(600) };
+        _now = now ?? (() => Environment.TickCount64);
+        _dispatcher = Dispatcher.CurrentDispatcher;
+        _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(300) };
         _timer.Tick += Tick;
     }
 
-    public void Begin(string toolName)
+    // Called by socket threads. At most one queued callback, even if Revit is busy.
+    public void NotifyRequest(string toolName)
     {
-        if (toolName is "get_connection_status" or "say_hello") return;
-        ToolName = toolName;
+        lock (_pendingLock)
+        {
+            if (_disposed) return;
+            _pendingRequest = toolName;
+            if (_refreshQueued) return;
+            _refreshQueued = true;
+        }
+        try { _dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(ApplyPendingRequest)); }
+        catch (Exception ex)
+        {
+            lock (_pendingLock) { _refreshQueued = false; }
+            System.Diagnostics.Trace.WriteLine($"[RevitCortex] Queue request indicator: {ex}");
+        }
+    }
+
+    private void ApplyPendingRequest()
+    {
+        string? tool;
+        lock (_pendingLock)
+        {
+            _refreshQueued = false;
+            tool = _pendingRequest;
+            _pendingRequest = null;
+        }
+        if (!_disposed && tool != null) Touch(tool);
+    }
+
+    private void Touch(string toolName)
+    {
+        _recentTool = toolName;
+        // Start the visible hold when the UI can process it, not at socket receipt.
+        _recentUntil = _now() + 1200;
         Dimmed = false;
         RefreshSafely();
         _timer.Start();
     }
 
+    public void Begin(string toolName)
+    {
+        if (_disposed) return;
+        _executingTool = toolName;
+        Touch(toolName);
+    }
+
     public void End()
     {
-        _timer.Stop();
-        ToolName = null;
-        Dimmed = false;
-        RefreshSafely();
+        if (_disposed) return;
+        var tool = _executingTool;
+        _executingTool = null;
+        // A synchronous script may have prevented repainting during execution.
+        // Retain a recent-activity pulse; do not mislabel it as still executing.
+        if (tool != null) Touch(tool);
     }
 
     private void Tick(object? sender, EventArgs e)
     {
-        Dimmed = !Dimmed;
+        if (_disposed) return;
+        if (_now() >= _recentUntil) _recentTool = null;
+        if (ToolName == null) { _timer.Stop(); Dimmed = false; }
+        else Dimmed = !Dimmed;
         RefreshSafely();
     }
 
@@ -49,7 +104,10 @@ internal sealed class RibbonActivityIndicator : IDisposable
 
     public void Dispose()
     {
+        lock (_pendingLock) { _disposed = true; _pendingRequest = null; }
         _timer.Stop();
         _timer.Tick -= Tick;
+        _executingTool = _recentTool = null;
+        Dimmed = false;
     }
 }

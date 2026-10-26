@@ -16,6 +16,7 @@ public class SocketService
 {
     private readonly object _lifecycleLock = new();
     private readonly Action<int>? _boundPort;
+    private readonly Action<string>? _requestReceived;
     private TcpListener? _listener;
     private volatile bool _isRunning;
     private Thread? _listenerThread;
@@ -26,10 +27,12 @@ public class SocketService
     public bool IsRunning => _isRunning;
     public bool HasBoundPort { get; private set; }
 
-    public SocketService(CortexRouter router, int port = 8080, Action<int>? boundPort = null)
+    public SocketService(CortexRouter router, int port = 8080, Action<int>? boundPort = null,
+        Action<string>? requestReceived = null)
     {
         _router = router;
         _boundPort = boundPort;
+        _requestReceived = requestReceived;
         _port = port;
     }
 
@@ -204,10 +207,14 @@ public class SocketService
         }
         catch
         {
+            NotifyRequest("invalid_request");
             return JsonConvert.SerializeObject(
                 JsonRpcResponse.Fail(null, -32700, "Parse error"));
         }
 
+        // Includes cached status/probes and requests the router will reject.
+        // The observer queues UI work only; it must never delay or reject routing.
+        NotifyRequest(string.IsNullOrEmpty(request?.Method) ? "invalid_request" : request.Method);
         if (request == null || string.IsNullOrEmpty(request.Method))
         {
             return JsonConvert.SerializeObject(
@@ -239,5 +246,11 @@ public class SocketService
             return JsonConvert.SerializeObject(
                 JsonRpcResponse.Fail(request.Id, -32603, SafeErrorMessages.ForInternal(ex)));
         }
+    }
+
+    private void NotifyRequest(string method)
+    {
+        try { _requestReceived?.Invoke(method); }
+        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[RevitCortex] Request indicator: {ex}"); }
     }
 }

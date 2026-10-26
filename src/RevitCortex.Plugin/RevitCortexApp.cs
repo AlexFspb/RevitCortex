@@ -126,7 +126,8 @@ public class RevitCortexApp : IExternalApplication
             _pbiActionHandler = new PbiActionEventHandler();
             _pbiActionEvent = ExternalEvent.Create(_pbiActionHandler);
 
-            _socketService = new SocketService(_router, _port, port => { _port = port; _session.BridgePort = port; });
+            _socketService = new SocketService(_router, _port,
+                port => { _port = port; _session.BridgePort = port; }, _activity.NotifyRequest);
 
             application.ControlledApplication.DocumentOpened += OnDocumentOpened;
             application.ControlledApplication.DocumentClosing += OnDocumentClosing;
@@ -262,7 +263,7 @@ public class RevitCortexApp : IExternalApplication
         bool active = _socketService?.IsRunning == true;
         _displayedServiceRunning = active;
         var tool = _activity?.ToolName;
-        var busy = tool != null;
+        var busy = active && tool != null;
         var color = busy
             ? (tool == "send_code_to_revit" ? System.Windows.Media.Colors.DarkOrange : System.Windows.Media.Colors.DodgerBlue)
             : (active ? System.Windows.Media.Color.FromRgb(46, 125, 50) : System.Windows.Media.Colors.DimGray);
@@ -271,7 +272,9 @@ public class RevitCortexApp : IExternalApplication
         _connectButton.Image = IconFactory.CreateConnectionIcon(16, color);
         _connectButton.LargeImage = IconFactory.CreateConnectionIcon(32, color);
         _connectButton.ItemText = busy ? (tool == "send_code_to_revit" ? "Cortex\r\nСкрипт" : "Cortex\r\nИнструмент") : "Cortex\r\nSwitch";
-        _connectButton.ToolTip = busy ? $"Выполняется {tool}. Порт {_port}." : active
+        _connectButton.ToolTip = busy ? (_activity!.IsExecuting
+            ? $"Выполняется {tool}. Порт {_port}."
+            : $"Обращение к Cortex: {tool}. Порт {_port}. Индикатор недавней активности.") : active
             ? $"RevitCortex 2026 running on port {_port} — click to stop"
             : "Start RevitCortex 2026 server";
     }
