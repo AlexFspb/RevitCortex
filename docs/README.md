@@ -18,7 +18,7 @@ Use these files for current behavior:
 
 ## Current fork policy
 
-The fork uses Revit 2026 / .NET 8, session-only 10-second `Allow auto-run` critical C# approval, and manual fork-owned updates.
+The fork uses Revit 2026 / .NET 8, default-on process-local automatic execution without approval windows or countdowns (manual confirmation when OFF), and manual fork-owned updates.
 
 The upstream experimental **Premium / License & Account** entitlement subsystem has been removed from this fork. This does not change the upstream project's legal license: the MIT license and copyright notice remain in `../LICENSE`.
 

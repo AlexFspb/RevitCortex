@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="RevitCortex.Tests" />
     <ProjectReference Include="..\RevitCortex.Core\RevitCortex.Core.csproj" />
   </ItemGroup>
 </Project>

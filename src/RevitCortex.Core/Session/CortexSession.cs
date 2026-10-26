@@ -13,9 +13,51 @@ namespace RevitCortex.Core.Session;
 /// </summary>
 public class CortexSession
 {
+    public string InstanceId { get; } = Guid.NewGuid().ToString("N");
+    public Func<bool>? CanPrepareScript { get; set; }
+    public Func<bool, RevitCortex.Core.Results.CortexResult<object>>? EnsureServiceDocument { get; set; }
+    private string? _documentPath;
+    private bool _isServiceDocument;
+    private DateTime _snapshotUpdatedUtc;
+
+    public void UpdateDocumentMetadata(string? path, bool service)
+    {
+        lock (_documentContextLock) { _documentPath = path; _isServiceDocument = service; _snapshotUpdatedUtc = DateTime.UtcNow; }
+    }
+
+    // Only cached primitives: safe on the socket thread, even while the Revit UI is busy.
+    public Newtonsoft.Json.Linq.JObject ConnectionStatus()
+    {
+        lock (_documentContextLock)
+            return new Newtonsoft.Json.Linq.JObject
+            {
+                ["protocol"] = "RevitCortex/1", ["instanceId"] = InstanceId,
+                ["revitProcessId"] = RevitCortex.Core.Hosting.CortexProcess.Id,
+                ["bridgePort"] = BridgePort, ["documentGeneration"] = _documentContextGeneration,
+                ["documentPresent"] = Store.Get<object>("activeDocument") != null,
+                ["activeDocumentTitle"] = _documentTitle, ["activeDocumentPath"] = _documentPath,
+                ["isServiceDocument"] = _isServiceDocument,
+                ["snapshotUpdatedUtc"] = _snapshotUpdatedUtc.ToString("o"),
+                ["snapshotOnly"] = true,
+                ["buildId"] = RevitCortex.Core.Hosting.CortexBuild.Id,
+                ["coreModuleId"] = RevitCortex.Core.Hosting.CortexBuild.CoreModuleId
+            };
+    }
+
+    public bool MatchesTarget(Newtonsoft.Json.Linq.JObject? expected)
+    {
+        if (expected == null) return true; // Native/internal callers retain their existing contract.
+        lock (_documentContextLock)
+            return expected.Value<string>("instanceId") == InstanceId
+                && expected.Value<int?>("bridgePort") == BridgePort
+                && expected.Value<long?>("documentGeneration") == _documentContextGeneration;
+    }
+
     public ISessionStore Store { get; }
     public DocumentCapabilities Capabilities { get; private set; }
     public string DetectedLocale { get; private set; }
+    /// <summary>Actual plugin listener port; independent of the document store.</summary>
+    public int? BridgePort { get; set; }
 
     /// <summary>
     /// Tool-result cache. Always non-null. Plugin wires invalidation to Revit
@@ -30,73 +72,51 @@ public class CortexSession
     /// </summary>
     public long DocumentVersion => Interlocked.Read(ref _documentVersion);
     private long _documentVersion;
+    private readonly object _documentContextLock = new();
+    private long _documentContextGeneration;
+    private string? _documentTitle;
+
+    // Set on the Revit UI thread; background audit code reads only this string.
+    public void UpdateDocumentTitle(string? title)
+    {
+        lock (_documentContextLock) _documentTitle = title;
+    }
+
+    public readonly struct DocumentContext
+    {
+        public long Generation { get; }
+        public object? Document { get; }
+        public string? Title { get; }
+        public DocumentContext(long generation, object? document, string? title = null)
+        {
+            Generation = generation;
+            Document = document;
+            Title = title;
+        }
+    }
+
+    public DocumentContext CaptureDocumentContext()
+    {
+        lock (_documentContextLock)
+            return new(_documentContextGeneration, Store.Get<object>("activeDocument"), _documentTitle);
+    }
+
+    public bool IsCurrentDocumentContext(DocumentContext context)
+    {
+        lock (_documentContextLock)
+            // Lifecycle comparisons happen on the Revit UI thread. Worker threads
+            // compare only the generation and never invoke Document.Equals.
+            return context.Generation == _documentContextGeneration;
+    }
 
     /// <summary>
     /// Atomically increment <see cref="DocumentVersion"/>. Returns the new value.
     /// </summary>
     public long BumpDocumentVersion() => Interlocked.Increment(ref _documentVersion);
 
-    /// <summary>
-    /// Confirmation callback for normal destructive operations.
-    /// Parameters: (actionVerb, elementCount, description) -> bool?
-    /// null means "Yes to All" and arms the 120-second ApproveAll window.
-    /// If the callback itself is null, the normal operation proceeds without confirmation.
-    /// </summary>
+    /// <summary>Host confirmation policy. Missing callback or null result denies the operation.</summary>
     public Func<string, int, string?, bool?>? ConfirmAction { get; set; }
-
-    /// <summary>
-    /// Confirmation callback for critical operations such as custom C# execution.
-    /// Critical requests never consume the generic ApproveAll or AutoMode flags and
-    /// fail closed when no callback exists. The Plugin callback may provide its own
-    /// explicit UI policy; the Revit 2026 fork uses a visible session-only 10-second
-    /// auto-run countdown inside that critical confirmation window.
-    /// </summary>
     public Func<string, int, string?, bool?>? CriticalConfirmAction { get; set; }
-
-    /// <summary>
-    /// When true, normal subsequent confirmations are auto-approved until timeout.
-    /// Set by "Yes to All" in the normal confirmation dialog. Expires after 120 seconds.
-    /// The flag+timestamp pair must be read/written as a unit.
-    /// </summary>
-    public bool ApproveAll
-    {
-        get
-        {
-            lock (_approveAllLock)
-            {
-                return _approveAll && (DateTime.UtcNow - _approveAllTimestamp).TotalSeconds < 120;
-            }
-        }
-        set
-        {
-            lock (_approveAllLock)
-            {
-                _approveAll = value;
-                if (value) _approveAllTimestamp = DateTime.UtcNow;
-            }
-        }
-    }
-    private readonly object _approveAllLock = new();
-    private bool _approveAll;
-    private DateTime _approveAllTimestamp;
-
-    /// <summary>
-    /// Generic Auto mode for normal destructive confirmations. This is separate
-    /// from the critical C# confirmation window's session-only "Allow auto-run"
-    /// option. Critical requests intentionally do not read this flag.
-    /// </summary>
-    public bool AutoMode
-    {
-        get { lock (_approveAllLock) { return _autoMode; } }
-        set { lock (_approveAllLock) { _autoMode = value; } }
-    }
-    private bool _autoMode;
-
-    /// <summary>
-    /// Raised every time a normal destructive operation is auto-approved because
-    /// generic AutoMode is on. Core stays Revit-agnostic so UI layers can update status.
-    /// </summary>
-    public event Action? AutoModeActivity;
 
     public CortexSession(ISessionStore store)
         : this(store, new ToolResultCache())
@@ -111,72 +131,30 @@ public class CortexSession
         DetectedLocale = "en";
     }
 
-    public void Reinitialize(DocumentCapabilities capabilities, string locale)
+    public void Reinitialize(DocumentCapabilities capabilities, string locale, object? document = null)
     {
-        Store.Clear();
-        Capabilities = capabilities;
-        DetectedLocale = locale;
-
-        Cache.InvalidateAll();
-        BumpDocumentVersion();
-        AutoMode = false;
+        lock (_documentContextLock)
+        {
+            _documentContextGeneration++;
+            _documentTitle = null;
+            _documentPath = null; _isServiceDocument = false; _snapshotUpdatedUtc = DateTime.UtcNow;
+            Store.Clear();
+            Capabilities = capabilities;
+            DetectedLocale = locale;
+            Cache.InvalidateAll();
+            BumpDocumentVersion();
+            if (document != null) Store.Set("activeDocument", document);
+        }
     }
 
-    /// <summary>
-    /// Ask for confirmation before a destructive operation.
-    /// Normal requests may use the 120-second ApproveAll window or generic AutoMode.
-    /// Critical requests bypass both generic modes, require CriticalConfirmAction,
-    /// and return exactly the decision produced by that callback.
-    /// </summary>
-    /// <param name="action">Action verb: "delete", "rename", "replace compound structure", etc.</param>
-    /// <param name="elementCount">Number of elements affected.</param>
-    /// <param name="description">Optional detailed description of what will happen.</param>
-    /// <param name="critical">If true, bypasses generic ApproveAll/AutoMode and fails closed if no critical callback is available.</param>
-    public bool RequestConfirmation(
-        string action,
-        int elementCount,
-        string? description = null,
-        bool critical = false)
+    /// <summary>Run the host approval policy, then revalidate expiration and document context.</summary>
+    public bool RequestConfirmation(string action, int elementCount, string? description = null, bool critical = false)
     {
-        if (elementCount <= 0) return true;
-
-        if (!critical && AutoMode)
-        {
-            AutoModeActivity?.Invoke();
-            return true;
-        }
-
-        if (!critical && ApproveAll) return true;
-
-        if (critical)
-        {
-            if (CriticalConfirmAction == null) return false;
-            var criticalResult = CriticalConfirmAction.Invoke(action, elementCount, description);
-            return criticalResult == true;
-        }
-
-        var result = ConfirmAction?.Invoke(action, elementCount, description);
-        if (result == null)
-        {
-            ApproveAll = true;
-            return true;
-        }
-
-        if (result == false) return false;
-
-        // ConfirmationHelper may set generic AutoMode directly when its Auto command is clicked.
-        if (AutoMode) return true;
-
-        return result.Value;
-    }
-
-    /// <summary>
-    /// Resets generic normal-operation approval modes. Critical confirmation state
-    /// belongs to the Plugin UI and is intentionally not represented by these flags.
-    /// </summary>
-    public void ResetApproveAll()
-    {
-        ApproveAll = false;
-        AutoMode = false;
+        var request = ToolRequestLifetime.Current;
+        request?.BeginConfirmation();
+        var callback = critical ? CriticalConfirmAction : ConfirmAction;
+        var approved = elementCount <= 0 || callback?.Invoke(action, elementCount, description) == true;
+        request?.FinishConfirmation();
+        return approved;
     }
 }

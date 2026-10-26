@@ -22,13 +22,11 @@ public class ToggleConnection : IExternalCommand
             if (app.IsServiceRunning)
             {
                 app.StopService();
-                TaskDialog.Show("RevitCortex 2026", "Server stopped.");
             }
             else
             {
                 var doc = commandData.Application.ActiveUIDocument?.Document;
                 app.StartService(doc);
-                TaskDialog.Show("RevitCortex 2026", $"Server started on port {app.Port}.");
             }
 
             return Result.Succeeded;

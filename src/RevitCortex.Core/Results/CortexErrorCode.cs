@@ -7,7 +7,10 @@ public enum CortexErrorCode
     PermissionDenied = 200,
     TransactionFailed = 300,
     InvalidInput = 400,
+    ScriptPreconditionFailed = 410,
     Timeout = 500,
     Cancelled = 600,
+    ConfirmationFailed = 610,
+    ResultSerializationFailed = 700,
     Unknown = 900
 }
