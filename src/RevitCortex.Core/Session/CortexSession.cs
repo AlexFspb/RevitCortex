@@ -17,6 +17,7 @@ public class CortexSession
     public Func<bool>? CanPrepareScript { get; set; }
     public Func<bool, RevitCortex.Core.Results.CortexResult<object>>? EnsureServiceDocument { get; set; }
     private string? _documentPath;
+    private string? _documentToken;
     private bool _isServiceDocument;
     private DateTime _snapshotUpdatedUtc;
 
@@ -35,6 +36,7 @@ public class CortexSession
                 ["revitProcessId"] = RevitCortex.Core.Hosting.CortexProcess.Id,
                 ["bridgePort"] = BridgePort, ["documentGeneration"] = _documentContextGeneration,
                 ["documentPresent"] = Store.Get<object>("activeDocument") != null,
+                ["documentToken"] = _documentToken,
                 ["activeDocumentTitle"] = _documentTitle, ["activeDocumentPath"] = _documentPath,
                 ["isServiceDocument"] = _isServiceDocument,
                 ["snapshotUpdatedUtc"] = _snapshotUpdatedUtc.ToString("o"),
@@ -136,6 +138,7 @@ public class CortexSession
         lock (_documentContextLock)
         {
             _documentContextGeneration++;
+            _documentToken = document == null ? null : Guid.NewGuid().ToString("N");
             _documentTitle = null;
             _documentPath = null; _isServiceDocument = false; _snapshotUpdatedUtc = DateTime.UtcNow;
             Store.Clear();

@@ -11,6 +11,8 @@ public class ScriptHostAccessTests
     [Theory]
     [InlineData("RevitCortex.Core.Session.CortexSession", "var x = new X(new RevitCortex.Core.Session.SessionStore()); return x;")]
     [InlineData("RevitCortex.Core.Session.AutomaticExecutionPolicy", "var p = new X(); p.SetEnabled(true); return p;")]
+    [InlineData("RevitCortex.Core.Addins.AddinRegistry", "X.Shared.Unregister(\"test\"); return null;")]
+    [InlineData("RevitCortex.Core.Addins.AddinOperations", "return typeof(X);")]
     [InlineData("RevitCortex.Plugin.RevitCortexApp", "X.Instance.Session.CriticalConfirmAction = (a,b,c) => true; return null;")]
     [InlineData("RevitCortex.Plugin.RevitCortexApp", "X.Instance.Router.ReadOnlyMode = false; return null;")]
     [InlineData("RevitCortex.Plugin.RevitCortexApp", "X.Instance.Router.SetDisabledTools(new string[0]); return null;")]

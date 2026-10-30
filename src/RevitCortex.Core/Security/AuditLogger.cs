@@ -95,6 +95,14 @@ public class AuditLogger
         }, toolName, RequestLogPath);
     }
 
+    public void LogAddinOperation(Newtonsoft.Json.Linq.JObject receipt)
+    {
+        var entry = (Newtonsoft.Json.Linq.JObject)receipt.DeepClone();
+        entry["event"] = "addin_operation"; entry["revitProcessId"] = CortexProcess.Id;
+        entry["buildId"] = CortexBuild.Id; entry["coreModuleId"] = CortexBuild.CoreModuleId;
+        WriteEntry(entry, "addin_execute", RequestLogPath);
+    }
+
     private void WriteEntry(object entry, string toolName, string? destination = null)
     {
         try

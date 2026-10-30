@@ -13,6 +13,10 @@ Upstream project: `LuDattilo/RevitCortex`
 
 RevitCortex is a Model Context Protocol (MCP) server plus Autodesk Revit add-in. It exposes dedicated Revit tools to MCP-compatible AI clients and, when explicitly enabled, a controlled custom C# execution path.
 
+## Registered add-in commands
+
+Cortex can call explicitly registered commands of installed Revit plugins through five MCP tools, using the existing port and ExternalEvent. See [the API 1 contract, sample provider and integration checklist](docs/addin-commands.md). MEP needs its own adapter; this change does not replace its calculation code.
+
 ## Supported platform
 
 | Component | This fork |

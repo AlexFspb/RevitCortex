@@ -14,12 +14,14 @@ using RevitCortex.Core.Security;
 using RevitCortex.Core.Session;
 using RevitCortex.Core.Telemetry;
 using RevitCortex.Core.Tools;
+using RevitCortex.Core.Addins;
 using RevitCortex.Plugin.Threading;
 
 namespace RevitCortex.Plugin;
 
 public class CortexRouter
 {
+    public AddinOperations? Addins { get; set; }
     private readonly Dictionary<string, ICortexTool> _tools = new();
     private readonly Dictionary<string, ToolSafetyRegistration> _toolSafety =
         new(StringComparer.OrdinalIgnoreCase);
@@ -38,7 +40,7 @@ public class CortexRouter
     // Copy-on-write: writers replace the complete set atomically, readers never see
     // a partially-mutated collection.
     private volatile HashSet<string> _disabledTools = new();
-    private bool _readOnlyMode;
+    private volatile bool _readOnlyMode;
 
     /// <summary>
     /// Prefixes that identify read-only (query-only) tools.
@@ -92,7 +94,7 @@ public class CortexRouter
     public void RegisterToolsFromAssembly(Assembly assembly)
     {
         var toolTypes = assembly.GetTypes()
-            .Where(t => typeof(ICortexTool).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
+            .Where(t => typeof(ICortexTool).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract && !t.IsNestedPrivate);
 
         foreach (var type in toolTypes)
         {
@@ -183,7 +185,7 @@ public class CortexRouter
 
     private CortexResult<object> RouteCore(string toolName, JObject input, CortexSession.DocumentContext documentContext)
     {
-        if (!_session.MatchesTarget(input["_cortexExpected"] as JObject))
+        if (!AddinOperations.Handles(toolName) && !_session.MatchesTarget(input["_cortexExpected"] as JObject))
             return new DocumentContextChangedException().ToResult();
         var documentVersion = _session.DocumentVersion;
         if (!_tools.TryGetValue(toolName, out var tool))
@@ -198,6 +200,11 @@ public class CortexRouter
 
         // Cached primitives only; still honor tool registration and disabled-tool settings.
         if (toolName == "get_connection_status") return CortexResult<object>.Ok(_session.ConnectionStatus());
+
+        // Add-in operations carry explicit immutable context and enforce per-command safety.
+        // Status/cancel must remain available even when the UI is busy or the document changed.
+        if (AddinOperations.Handles(toolName)) return Addins?.Handle(toolName, input)
+            ?? CortexResult<object>.Fail(CortexErrorCode.InvalidInput, "Add-in command host is unavailable.");
 
         if (tool.RequiresDocument && documentContext.Document == null)
             return CortexResult<object>.Fail(CortexErrorCode.InvalidInput,
@@ -421,6 +428,9 @@ public class CortexRouter
 
     private static string BuildInputSummary(string toolName, JObject input)
     {
+        if (AddinOperations.Handles(toolName)) return new JObject(input.Properties()
+            .Where(p => new[] { "requestId", "operationId", "pluginId", "operationName", "mode" }.Contains(p.Name))
+            .Select(p => new JProperty(p.Name, p.Value.DeepClone()))).ToString(Formatting.None);
         if (input == null || !input.HasValues) return "(no params)";
 
         var parts = new List<string>(input.Count);

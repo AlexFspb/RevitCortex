@@ -153,6 +153,13 @@ public sealed class RevitConnectionManager
     /// </summary>
     public async Task<JToken> ExecuteAsync(string method, JObject parameters, int commandTimeoutSeconds, CancellationToken ct = default)
     {
+        // These endpoints use cached managed state only. Never put them behind a long Revit call.
+        // Add-in commands have their own explicit instance/document/provider generation contract.
+        if (method == "get_connection_status" || RevitCortex.Core.Addins.AddinOperations.Handles(method))
+        {
+            using var control = new RevitBridge(port: _port, commandTimeoutSeconds: commandTimeoutSeconds);
+            return await control.SendCommandAsync(method, parameters, ct);
+        }
         await _mutex.WaitAsync(ct);
         try
         {
