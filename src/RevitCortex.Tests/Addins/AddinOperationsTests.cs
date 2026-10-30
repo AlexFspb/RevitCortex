@@ -5,7 +5,7 @@ using Xunit;
 
 namespace RevitCortex.Tests.Addins;
 
-public class AddinOperationsTests
+public partial class AddinOperationsTests
 {
     private const string Empty = "{\"type\":\"object\",\"additionalProperties\":false}";
     private sealed class Scheduler : IAddinScheduler
@@ -36,14 +36,17 @@ public class AddinOperationsTests
         }};
         public bool Busy, ThrowCleanup, ReloadThrows;
         public Action? Cleanup;
-        public int Calls, Disposals;
+        public int Calls, Disposals, GateEntries, ReloadCalls;
+        public bool LeaseHeld;
         public Func<AddinExecutionContext, AddinCommandResult>? Body;
-        public Provider? Replacement;
+        public IAddinCommandProvider? Replacement;
         public AddinProviderInfo Describe() => Info;
         public bool TryEnter(out IDisposable? lease)
         {
-            lease = Busy ? null : new Lease(() => { Disposals++; Cleanup?.Invoke(); if (ThrowCleanup) throw new Exception("cleanup failed"); });
-            return !Busy;
+            if (Busy || LeaseHeld) { lease = null; return false; }
+            GateEntries++; LeaseHeld = true;
+            lease = new Lease(() => { Disposals++; try { Cleanup?.Invoke(); if (ThrowCleanup) throw new Exception("cleanup failed"); } finally { LeaseHeld = false; } });
+            return true;
         }
         public AddinCommandResult Execute(AddinExecutionContext ctx)
         {
@@ -52,7 +55,11 @@ public class AddinOperationsTests
                 ModelChanged = ctx.Mode == "commit", ExternalEffects = false,
                 TransactionOutcome = ctx.Mode == "commit" ? "committed" : ctx.Mode == "probeRollback" ? "rolledBack" : "none" };
         }
-        public IAddinCommandProvider Reload() => ReloadThrows ? throw new Exception("load failed") : Replacement ?? new Provider();
+        public IAddinCommandProvider Reload()
+        {
+            Assert.True(LeaseHeld); ReloadCalls++;
+            return ReloadThrows ? throw new Exception("load failed") : Replacement ?? new Provider();
+        }
     }
     private sealed class Fixture
     {
@@ -65,9 +72,10 @@ public class AddinOperationsTests
         public DateTime Now = DateTime.UtcNow;
         public List<JObject> Audit = new();
         public AddinOperations Service;
+        public IDisposable Registration;
         public Fixture()
         {
-            Registry.Register(Provider);
+            Registration = Registry.Register(Provider);
             Service = new(Registry, Scheduler, () => (JObject)Context.DeepClone(), () => ReadOnly, _ => Enabled,
                 _ => { ConfirmAction?.Invoke(); return Approved; }, (_, _, _) => { if (InvalidApi) throw new AddinProtocolException("OpenTransaction", "open transaction"); },
                 Audit.Add, () => Now);
@@ -142,10 +150,10 @@ public class AddinOperationsTests
         Assert.Equal("failed", (string?)f.Inspect(q)["state"]); Assert.Equal("ready", (string?)f.Registry.List()[0]["state"]);
         Assert.Equal(0, f.Provider.Calls); Assert.Equal("queued", (string?)f.Submit(f.Request())["state"]);
     }
-    [Theory] [InlineData(false)] [InlineData(true)]
-    public void SchedulerBusyOrRaiseExceptionDoesNotInvoke(bool throws)
+    [Fact]
+    public void SchedulerExceptionIsRetainedAndDoesNotInvoke()
     {
-        var f = new Fixture(); f.Scheduler.Busy = true; f.Scheduler.Throw = throws;
+        var f = new Fixture(); f.Scheduler.Throw = true;
         var q = f.Request(); Assert.Equal("failed", (string?)f.Submit(q)["state"]);
         Assert.False(f.Inspect(q).Value<bool>("providerInvoked")); Assert.Equal("ready", (string?)f.Registry.List()[0]["state"]);
         Assert.Equal(0, f.Provider.Calls);
@@ -242,14 +250,14 @@ public class AddinOperationsTests
     }
     [Fact] public void UnregisterRejectsBusy_StaleDisposeCannotUnregisterReplacement()
     {
-        var f = new Fixture(); f.Submit(f.Request()); Assert.Throws<AddinProtocolException>(() => f.Registry.Unregister("test")); f.Scheduler.Drain();
-        f.Registry.Unregister("test"); Error(f.Service.Handle("addin_execute", f.Request()), "Unavailable");
-        var old = f.Registry.Register(new Provider()); f.Registry.Unregister("test"); f.Registry.Register(new Provider()); old.Dispose();
+        var f = new Fixture(); f.Submit(f.Request()); Assert.Throws<AddinProtocolException>(() => f.Registration.Dispose()); f.Scheduler.Drain();
+        f.Registration.Dispose(); Error(f.Service.Handle("addin_execute", f.Request()), "Unavailable");
+        var old = f.Registry.Register(new Provider()); old.Dispose(); f.Registry.Register(new Provider()); old.Dispose();
         Assert.Equal("ready", (string?)f.Registry.List()[0]["state"]);
     }
     [Fact] public void ResultPaginationPreservesUnicode()
     {
-        var f = new Fixture(); f.Registry.Unregister("test"); f.Provider.Info.Operations[0].ResultSchema = "{\"type\":\"string\"}";
+        var f = new Fixture(); f.Registration.Dispose(); f.Provider.Info.Operations[0].ResultSchema = "{\"type\":\"string\"}";
         f.Registry.Register(f.Provider); f.Provider.Body = _ => new() { Status = "succeeded", TransactionOutcome = "none", ModelChanged = false, ExternalEffects = false, ResultJson = "\"a😀b\"" };
         var q = f.Request("read", "preview"); q["expectedContext"]!["pluginGeneration"] = 2; f.Submit(q); f.Scheduler.Drain();
         var text = ""; int? offset = 0;

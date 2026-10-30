@@ -66,6 +66,12 @@ public sealed class AddinOperations
     }
     private static string Required(JObject obj, string key) => obj[key]?.Type == JTokenType.String && !string.IsNullOrWhiteSpace((string?)obj[key])
         ? (string)obj[key]! : throw new AddinProtocolException("InvalidRequest", "Missing string: " + key);
+    private static string Uuid(JObject input, string key)
+    {
+        if (!Guid.TryParseExact(Required(input, key), "D", out var id))
+            throw new AddinProtocolException("InvalidRequest", key + " must be a hyphenated UUID.");
+        return id.ToString("D");
+    }
     private void CheckContext(JObject expected, bool document)
     {
         var actual = _context();
@@ -79,9 +85,7 @@ public sealed class AddinOperations
         var request = (JObject)input.DeepClone(); request.Remove("_cortexExpected");
         if (request.Properties().Any(p => !new[] { "requestId", "pluginId", "operationName", "expectedContext", "mode", "arguments", "queueTimeoutSeconds" }.Contains(p.Name)))
             throw new AddinProtocolException("InvalidRequest", "Unknown request property.");
-        var requestId = Required(request, "requestId");
-        if (!Guid.TryParseExact(requestId, "D", out var guid)) throw new AddinProtocolException("InvalidRequest", "requestId must be a canonical UUID.");
-        requestId = guid.ToString("D"); request["requestId"] = requestId;
+        var requestId = Uuid(request, "requestId"); request["requestId"] = requestId;
         if (!(request["expectedContext"] is JObject expected)) throw new AddinProtocolException("InvalidRequest", "expectedContext is required.");
         if (expected.Properties().Any(p => !new[] { "instanceId", "documentToken", "documentGeneration", "pluginGeneration" }.Contains(p.Name))
             || expected["documentToken"] == null || expected["documentToken"]!.Type is not (JTokenType.Null or JTokenType.String)
@@ -93,6 +97,9 @@ public sealed class AddinOperations
         if (reload && new[] { "operationName", "mode", "arguments" }.Any(k => request[k] != null))
             throw new AddinProtocolException("InvalidRequest", "Reload accepts only requestId, pluginId, expectedContext and queueTimeoutSeconds.");
         if (reload) { request["operationName"] = "$reload"; request["mode"] = "commit"; request["arguments"] = new JObject(); }
+        var wait = request.Value<int?>("queueTimeoutSeconds") ?? 30;
+        if (wait < 1 || wait > 120) throw new AddinProtocolException("InvalidRequest", "queueTimeoutSeconds must be 1..120.");
+        request["queueTimeoutSeconds"] = wait;
         var json = AddinJson.Canonical(request).ToString(Formatting.None); AddinJson.Parse(json);
         using var sha = SHA256.Create(); var hash = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(json)));
         lock (_gate)
@@ -108,7 +115,7 @@ public sealed class AddinOperations
             var command = reload ? new AddinCommandInfo { Name = "$reload", RequiresDocument = false, ExternalEffects = true, Modes = new[] { "commit" } }
                 : entry.Info.Operations.SingleOrDefault(o => o.Name == Required(request, "operationName"))
                     ?? throw new AddinProtocolException("UnknownOperation", "Operation is not registered.");
-            if (reload && !(entry.Provider is IReloadableAddinProvider)) throw new AddinProtocolException("ReloadUnsupported", "The stable provider loader does not support reload.");
+            if (reload && entry.Loader == null) throw new AddinProtocolException("ReloadUnsupported", "The stable provider loader does not support reload.");
             var mode = Required(request, "mode");
             if (!command.Modes.Contains(mode)) throw new AddinProtocolException("UnsupportedMode", "Mode is not declared by this operation.");
             if (_readOnly() && (command.MutatesDocument || command.ExternalEffects)) throw new AddinProtocolException("ReadOnly", "This operation is blocked in read-only mode, including probeRollback.");
@@ -116,8 +123,6 @@ public sealed class AddinOperations
             if (expected.Value<long?>("pluginGeneration") != entry.Generation) throw new AddinProtocolException("PluginChanged", "Inspect the loaded provider generation again.");
             if (!(request["arguments"] is JObject args)) throw new AddinProtocolException("InvalidRequest", "arguments must be an object.");
             if (!reload) AddinJson.Validate(args, AddinJson.Parse(command.ArgumentsSchema));
-            var wait = request.Value<int?>("queueTimeoutSeconds") ?? 30;
-            if (wait < 1 || wait > 120) throw new AddinProtocolException("InvalidRequest", "queueTimeoutSeconds must be 1..120.");
             var op = new Operation
             {
                 Hash = hash, Request = request, Deadline = _now().AddSeconds(wait), SupportsCancellation = command.SupportsCancellation,
@@ -135,8 +140,8 @@ public sealed class AddinOperations
                 }
             };
             _registry.Reserve(entry, entry.Generation);
-            _requests.Add(requestId, op); _active = op; Audit(op);
-            bool accepted = false;
+            _requests.Add(requestId, op); _active = op;
+            bool accepted;
             try
             {
                 accepted = _scheduler.TrySchedule(api => Run(op, entry, command, reload, api), result => Complete(op, entry, result));
@@ -144,11 +149,15 @@ public sealed class AddinOperations
             catch (Exception ex)
             {
                 Complete(op, entry, CortexResult<object>.Fail(CortexErrorCode.Unknown, "Scheduler rejected the event: " + ex.Message));
+                return Snapshot(op, 0, 16384);
             }
-            finally
+            if (!accepted)
             {
-                if (!accepted) Complete(op, entry, CortexResult<object>.Fail(CortexErrorCode.Timeout, "Revit/Cortex is busy or rejected the event; command was not started."));
+                _requests.Remove(requestId); _registry.Release(entry); _active = null;
+                op.Cancellation?.Dispose(); op.Cancellation = null;
+                throw new AddinProtocolException("Busy", "Revit did not accept the event. Nothing started; no operation/UUID was retained. Retry the same request after it becomes available.");
             }
+            Audit(op);
             return Snapshot(op, 0, 16384);
         }
     }
@@ -170,7 +179,8 @@ public sealed class AddinOperations
                 op.State["state"] = "running"; op.State["startedUtc"] = _now().ToString("o");
             }
             _checkApi(api, command.RequiresDocument, command.MutatesDocument);
-            if (!entry.Provider!.TryEnter(out lease) || lease == null) throw new AddinProtocolException("ProviderBusy", "Provider UI or another operation is busy. Nothing was invoked.");
+            var gateOwner = (IAddinCommandProvider?)entry.Loader ?? entry.Provider!;
+            if (!gateOwner.TryEnter(out lease) || lease == null) throw new AddinProtocolException("ProviderBusy", "Provider UI or another operation is busy. Nothing was invoked.");
             if ((command.MutatesDocument || command.ExternalEffects) && !_confirm(entry.Info.PluginId + ": " + command.Name))
                 throw new AddinProtocolException("Cancelled", "Operation was not approved; provider was not invoked.");
             _checkApi(api, command.RequiresDocument, command.MutatesDocument);
@@ -197,9 +207,11 @@ public sealed class AddinOperations
             {
                 var result = entry.Provider.Execute(new AddinExecutionContext(command.Name, (string)op.Request["mode"]!, op.Request["arguments"]!.ToString(Formatting.None), api,
                     op.Cancellation!.Token, stage => { lock (_gate) if (ReferenceEquals(_active, op)) op.State["stage"] = stage?.Substring(0, Math.Min(stage.Length, 256)); }));
+                CaptureProviderReceipt(op, result);
                 _checkApi(api, command.RequiresDocument, command.MutatesDocument);
                 lock (_gate)
                 {
+                    op.State["postExecutionCheckPassed"] = true;
                     if (result == null) throw new AddinProtocolException("InvalidResult", "Provider returned no transaction/effect receipt.");
                     op.State["modelChanged"] = result.ModelChanged; op.State["externalEffects"] = result.ExternalEffects; op.State["transactionOutcome"] = result.TransactionOutcome;
                     var data = AddinJson.Parse(result.ResultJson, 8388608); var diagnostic = AddinJson.Parse(result.DiagnosticsJson);
@@ -215,7 +227,7 @@ public sealed class AddinOperations
                         if (result.TransactionOutcome != (command.MutatesDocument && mode == "commit" ? "committed" : "none")) throw new AddinProtocolException("TransactionNotCommitted", "Success requires a valid final transaction outcome.");
                     }
                     if ((mode == "preview" && (result.ModelChanged != false || result.ExternalEffects != false))
-                        || (mode == "probeRollback" && (result.Status != "rolledBack" || result.TransactionOutcome != "rolledBack" || result.ModelChanged != false || result.ExternalEffects != false))
+                        || (mode == "probeRollback" && !ValidProbeReceipt(result))
                         || (result.Status is "cancelled" or "rolledBack" && (result.ModelChanged != false || result.ExternalEffects != false))
                         || (result.Status == "rolledBack" && result.TransactionOutcome != "rolledBack")
                         || (result.Status == "cancelled" && result.TransactionOutcome is not ("none" or "rolledBack"))
@@ -247,6 +259,31 @@ public sealed class AddinOperations
             }
         }
     }
+    private static bool ValidProbeReceipt(AddinCommandResult result) =>
+        result.ModelChanged == false && result.ExternalEffects == false
+        && ((result.TransactionOutcome == "rolledBack" && result.Status is "rolledBack" or "failed" or "cancelled")
+            || (result.TransactionOutcome == "none" && result.Status is "failed" or "cancelled"));
+
+    private void CaptureProviderReceipt(Operation op, AddinCommandResult? result)
+    {
+        lock (_gate)
+        {
+            op.State["postExecutionCheckPassed"] = false;
+            if (result == null) return;
+            // Preserve reported facts before checking Revit. They are not independently verified rollback/commit.
+            var receipt = new JObject { ["status"] = ShortMessage(result.Status ?? ""),
+                ["transactionOutcome"] = ShortMessage(result.TransactionOutcome ?? ""),
+                ["modelChanged"] = result.ModelChanged, ["externalEffects"] = result.ExternalEffects };
+            try
+            {
+                var diagnostics = AddinJson.Parse(result.DiagnosticsJson);
+                if (!(diagnostics is JArray)) throw new AddinProtocolException("InvalidResult", "Diagnostics must be a JSON array.");
+                receipt["diagnostics"] = diagnostics;
+            }
+            catch (Exception ex) { receipt["diagnosticsError"] = ShortMessage(ex.Message); }
+            op.State["providerReceipt"] = receipt;
+        }
+    }
     private void Complete(Operation op, AddinRegistry.Entry entry, CortexResult<object> result)
     {
         lock (_gate)
@@ -273,7 +310,7 @@ public sealed class AddinOperations
                 if (retained <= 128 && bytes <= 33554432) break;
                 bytes -= Encoding.UTF8.GetByteCount(old.ResultJson ?? "") + Encoding.UTF8.GetByteCount(old.State.ToString(Formatting.None));
                 old.ResultJson = null; old.State.Remove("diagnostics"); old.State.Remove("error"); old.State.Remove("stage");
-                old.State.Remove("actualContext"); old.State.Remove("expectedContext"); old.State["resultExpired"] = true; retained--;
+                old.State.Remove("actualContext"); old.State.Remove("expectedContext"); old.State.Remove("providerReceipt"); old.State["resultExpired"] = true; retained--;
             }
             Audit(op);
 
@@ -299,12 +336,16 @@ public sealed class AddinOperations
     private JObject Inspect(JObject input, bool cancel)
     {
         if (Required(input, "instanceId") != _context().Value<string>("instanceId")) throw new AddinProtocolException("InstanceChanged", "Operation belongs to another process; result is unknown here.");
+        var requestId = input["requestId"] == null ? null : Uuid(input, "requestId");
+        var operationId = input["operationId"] == null ? null : Uuid(input, "operationId");
+        if (requestId == null && operationId == null) throw new AddinProtocolException("InvalidRequest", "operationId or requestId required.");
+        var offset = input.Value<int?>("resultOffset") ?? 0; var count = input.Value<int?>("resultCount") ?? 16384;
+        if (offset < 0 || count < 1 || count > 65536) throw new AddinProtocolException("InvalidRequest", "resultOffset >= 0; resultCount 1..65536.");
         lock (_gate)
         {
-            var requestId = input.Value<string>("requestId"); var operationId = input.Value<string>("operationId");
-            if (string.IsNullOrWhiteSpace(requestId) && string.IsNullOrWhiteSpace(operationId)) throw new AddinProtocolException("InvalidRequest", "operationId or requestId required.");
             var op = _requests.Values.FirstOrDefault(o => (requestId == null || (string?)o.State["requestId"] == requestId) && (operationId == null || (string?)o.State["operationId"] == operationId));
             if (op == null) throw new AddinProtocolException("UnknownOutcome", "No retained operation with this ID in this process. Do not infer that an earlier write did not happen.");
+            ValidatePage(op, offset); // Validate even result-dependent bounds before cancellation/expiration.
             ExpireQueued(op);
             if (cancel)
             {
@@ -319,8 +360,6 @@ public sealed class AddinOperations
                     ThreadPool.QueueUserWorkItem(_ => { try { lifetime?.Expire("addin_execute", 0); op.Cancellation?.Cancel(); } catch { } });
                 }
             }
-            var offset = input.Value<int?>("resultOffset") ?? 0; var count = input.Value<int?>("resultCount") ?? 16384;
-            if (offset < 0 || count < 1 || count > 65536) throw new AddinProtocolException("InvalidRequest", "resultOffset >= 0; resultCount 1..65536.");
             return Snapshot(op, offset, count);
         }
     }
@@ -330,9 +369,7 @@ public sealed class AddinOperations
         if (op.ResultJson != null)
         {
             var text = op.ResultJson;
-            if (offset > text.Length) throw new AddinProtocolException("InvalidRequest", "resultOffset exceeds the result length.");
-            if (offset > 0 && offset < text.Length && char.IsLowSurrogate(text[offset]) && char.IsHighSurrogate(text[offset - 1]))
-                throw new AddinProtocolException("InvalidRequest", "Offset splits a Unicode character; use nextOffset.");
+            ValidatePage(op, offset);
             int length = Math.Min(count, text.Length - offset);
             if (length > 0 && offset + length < text.Length && char.IsHighSurrogate(text[offset + length - 1]))
                 length += 1; // One extra UTF-16 unit keeps an astral character intact.
@@ -340,5 +377,13 @@ public sealed class AddinOperations
                 ["text"] = text.Substring(offset, length), ["nextOffset"] = offset + length < text.Length ? offset + length : (int?)null };
         }
         return result;
+    }
+    private static void ValidatePage(Operation op, int offset)
+    {
+        var text = op.ResultJson;
+        if (text == null) return;
+        if (offset > text.Length) throw new AddinProtocolException("InvalidRequest", "resultOffset exceeds the result length.");
+        if (offset > 0 && offset < text.Length && char.IsLowSurrogate(text[offset]) && char.IsHighSurrogate(text[offset - 1]))
+            throw new AddinProtocolException("InvalidRequest", "Offset splits a Unicode character; use nextOffset.");
     }
 }

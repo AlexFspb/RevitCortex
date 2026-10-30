@@ -16,6 +16,8 @@ public sealed class AddinRegistry
     internal sealed class Entry
     {
         public IAddinCommandProvider? Provider;
+        // Stable host object; replacement command modules need not implement reload or own the gate.
+        public IReloadableAddinProvider? Loader;
         public AddinProviderInfo Info = new();
         public long Generation;
         public bool InUse;
@@ -44,7 +46,7 @@ public sealed class AddinRegistry
         {
             _entries.TryGetValue(info.PluginId, out var old);
             if (old?.Provider != null || old?.InUse == true) throw new AddinProtocolException("AlreadyRegistered", info.PluginId);
-            var entry = new Entry { Provider = provider, Info = info, Generation = (old?.Generation ?? 0) + 1 };
+            var entry = new Entry { Provider = provider, Loader = provider as IReloadableAddinProvider, Info = info, Generation = (old?.Generation ?? 0) + 1 };
             _entries[info.PluginId] = entry;
             return new Registration(this, entry);
         }
@@ -58,13 +60,14 @@ public sealed class AddinRegistry
                     owner.Unregister(registered.Info.PluginId);
         }
     }
-    public void Unregister(string id)
+    private void Unregister(string id)
     {
         lock (_gate)
         {
             if (!_entries.TryGetValue(id, out var entry)) return;
             if (entry.InUse) throw new AddinProtocolException("Busy", "Drain/cancel the operation before unloading this provider.");
             entry.Provider = null;
+            entry.Loader = null;
         }
     }
     internal Entry Find(string id)
@@ -92,7 +95,7 @@ public sealed class AddinRegistry
         var previousId = entry.Info.ModuleId;
         try
         {
-            var replacement = ((IReloadableAddinProvider)entry.Provider!).Reload();
+            var replacement = entry.Loader!.Reload();
             var info = Validate(replacement.Describe());
             if (info.PluginId != entry.Info.PluginId || info.ModuleId == previousId)
                 throw new AddinProtocolException("ReloadNotVerified", "Loader did not report a different loaded module for the same provider.");
@@ -101,7 +104,7 @@ public sealed class AddinRegistry
         catch
         {
             // A failed loader may already have unloaded the old module. Never keep calling it.
-            lock (_gate) { entry.Provider = null; entry.Generation++; }
+            lock (_gate) { entry.Provider = null; entry.Loader = null; entry.Generation++; }
             throw;
         }
     }
@@ -115,7 +118,7 @@ public sealed class AddinRegistry
         ["loadedVersion"] = e.Info.LoadedVersion, ["moduleId"] = e.Info.ModuleId,
         ["buildId"] = "mvid:" + e.Info.ModuleId, ["loadedModuleSha256"] = e.Info.LoadedModuleSha256,
         ["pluginGeneration"] = e.Generation, ["state"] = e.Incompatible ? "incompatible" : e.Provider == null ? "unavailable" : e.InUse ? "busy" : "ready",
-        ["supportsReload"] = e.Provider is IReloadableAddinProvider,
+        ["supportsReload"] = e.Loader != null,
         ["operations"] = new JArray(e.Info.Operations.Select(o => new JObject
         {
             ["operationName"] = o.Name, ["schemaVersion"] = o.SchemaVersion,

@@ -13,7 +13,9 @@ public interface IAddinCommandProvider
     AddinCommandResult Execute(AddinExecutionContext context);
 }
 
-/// <summary>Implemented by a stable loader. Must throw on failure, never merely log it.</summary>
+/// <summary>Stable loader retained across reloads. Its TryEnter lease gates UI and all module generations.
+/// Reload returns the current command provider; it need not implement this interface.
+/// Must throw on failure, never merely log it. Do not retain obsolete modules after reload.</summary>
 public interface IReloadableAddinProvider : IAddinCommandProvider
 {
     IAddinCommandProvider Reload();
@@ -80,6 +82,8 @@ public sealed class AddinProtocolException : Exception
 
 public interface IAddinScheduler
 {
+    // false means definitively not admitted: no run/completion callback may execute later.
+    // An exception is retained as a failed request, not treated as retryable Busy.
     bool TrySchedule(Func<object?, RevitCortex.Core.Results.CortexResult<object>> run,
         Action<RevitCortex.Core.Results.CortexResult<object>> completed);
 }
