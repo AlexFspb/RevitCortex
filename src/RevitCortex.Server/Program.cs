@@ -27,6 +27,10 @@ builder.Services
             "This RevitCortex fork targets Autodesk Revit 2026. Prefer the dedicated Revit tool that matches the task " +
             "(parameters, filtering/queries, model statistics, views, schedules, tags, dimensions, rebar, steel, IFC, Power BI). " +
             "For destructive tools, use dryRun/preview first when the tool supports it. " +
+            "For registered third-party plugins use addin_list, then addin_execute with explicit instance/document/provider context and a requestId UUID. " +
+            "Poll addin_get_operation; use addin_cancel_operation for cooperative cancellation and addin_reload only for advertised stable loaders. " +
+            "These tools have their own explicit context contract; addin_list does not rebind other tools. One admitted operation, no backlog. " +
+            "Never repeat a lost request under a new ID. Failed/unknown outcomes require state verification. Cortex does not wrap provider-owned transactions. " +
             "send_code_to_revit is a LAST RESORT: do not select it autonomously when a dedicated tool covers the operation. " +
             "Use custom C# only for an operation that is genuinely uncovered, within the user-authorized task; " +
             "no separate chat approval is required. " +

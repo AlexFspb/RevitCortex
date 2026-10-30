@@ -50,7 +50,7 @@ public class ToolCatalogParitySourceTests
         // non-tool Name members is harmless — it only adds to the allowed set.
         var pluginNames = ExtractNames(
             pluginFiles,
-            new Regex(@"public\s+string\s+Name\s*(?:=>\s*|\{[^}]*\}\s*=\s*)""([^""]+)"""));
+            new Regex(@"public\s+(?:override\s+)?string\s+Name\s*(?:=>\s*|\{[^}]*\}\s*=\s*)""([^""]+)"""));
 
         Assert.NotEmpty(mcpNames);
         Assert.NotEmpty(pluginNames);

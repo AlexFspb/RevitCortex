@@ -105,6 +105,10 @@ Sandbox checks, EnableCodeExecution, disabled tools, read-only mode, context che
 
 The ribbon **Diagnostic Report** action creates a local ZIP and opens it in Explorer. It does not automatically email the upstream author or upload the report.
 
+## Registered add-in commands
+
+Use `addin_list` and the explicit instance/document/provider context contract for installed plugin operations. `addin_execute` admits one operation; use its requestId/operationId for polling and cooperative cancellation. Never repeat a lost request with a new UUID. Transactions belong to the provider; Cortex must not add an outer transaction. Preserve read-only/disabled-tool/host approval checks. Only a registered stable loader can reload modules, without caller-supplied DLL paths. Core registry is not a script API. See [contract and verification](docs/addin-commands.md).
+
 ## Build commands
 
 ```powershell

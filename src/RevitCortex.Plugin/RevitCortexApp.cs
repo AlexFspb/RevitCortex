@@ -115,6 +115,12 @@ public class RevitCortexApp : IExternalApplication
             var externalEvent = ExternalEvent.Create(executionHandler);
             var dispatcher = new RevitThreadDispatcher(executionHandler, externalEvent);
             _router.SetDispatcher(dispatcher);
+            _router.Addins = new RevitCortex.Core.Addins.AddinOperations(
+                RevitCortex.Core.Addins.AddinRegistry.Shared, new AddinScheduler(dispatcher, _session),
+                _session.ConnectionStatus, () => _router.ReadOnlyMode, name => !_router.DisabledTools.Contains(name),
+                name => _session.RequestConfirmation(name, 1),
+                (api, requiresDocument, mutatesDocument) => AddinScheduler.CheckApi(api, requiresDocument, mutatesDocument, _session),
+                auditLogger.LogAddinOperation);
             _session.CanPrepareScript = () => !_router.DisabledTools.Contains("send_code_to_revit");
 
             LoadDisabledTools();

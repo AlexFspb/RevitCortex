@@ -9,6 +9,24 @@ namespace RevitCortex.Plugin.Threading;
 
 public class RevitThreadDispatcher
 {
+    // Admission uses the same slot as ordinary tools. Completion never waits on the UI.
+    public bool TrySubmit(ICortexTool tool, CortexSession session, Action<CortexResult<object>> completed)
+    {
+        lock (_lock)
+        {
+            if (!_handler.TryPrepareExecution(tool, new JObject(), session, out var request)) return false;
+            try
+            {
+                if (_externalEvent.Raise() != ExternalEventRequest.Accepted)
+                { _handler.RejectPreparedExecution(request); return false; }
+            }
+            catch { _handler.RejectPreparedExecution(request); throw; }
+            _ = request.Completion.ContinueWith(t => completed(t.Result),
+                System.Threading.CancellationToken.None, System.Threading.Tasks.TaskContinuationOptions.None,
+                System.Threading.Tasks.TaskScheduler.Default);
+            return true;
+        }
+    }
     private readonly ToolExecutionHandler _handler;
     private readonly ExternalEvent _externalEvent;
     private readonly object _lock = new object();
