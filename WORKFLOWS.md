@@ -37,6 +37,8 @@ Use `workflow_model_audit` only when the user actually needs the more detailed a
 
 ## 3. Find elements
 
+For structural beams and columns, `get_location_curves` returns actual location curves or insertion points, with explicit geometry kind and bounded pagination. Point-only columns and bounding boxes do not define a verified axis. Coordinates are Revit internal feet; numeric type parameters have their own reported data types. See [structural member workflow](docs/structural-members.md).
+
 Choose the narrowest search tool:
 
 - exact/simple data filter → `export_elements_data`
@@ -49,6 +51,8 @@ Always apply reasonable limits. Do not pull thousands of full element payloads w
 ---
 
 ## 4. Discover a parameter before writing
+
+Use `get_element_relationships` before changing a host or nested family instance. It reports separate host, parent component, group/assembly, child, insert, dependent and adaptive-point relations, with explicit diagnostic states and bounds. These relations do not prove the absence of every other semantic dependency. For native straight MEP segments use `create_pipe` / `create_duct`, explicit IDs and millimetres, with `dryRun=true` first. See [MEP and relationship workflow](docs/mep-and-relationships.md).
 
 When the parameter name or built-in identifier is uncertain:
 

@@ -15,6 +15,8 @@ Use these files for current behavior:
 - `COMMANDS.md` — command reference pointers
 - `../ai-skills/revitcortex/` — focused AI skill/reference material
 - `../tool-schemas.txt` — generated technical MCP signatures
+- `structural-members.md` — bounded beam/column geometry queries and atomic member creation
+- `mep-and-relationships.md` — native pipe/duct creation and read-only element/family relationships
 
 ## Current fork policy
 

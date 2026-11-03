@@ -19,6 +19,10 @@ Cortex can call explicitly registered commands of installed Revit plugins throug
 
 ## Supported platform
 
+Structural authoring: `get_location_curves` reads bounded pages of actual beam/column location geometry. `author_structural_members` previews and creates atomic batches of straight beams and vertical structural columns from loaded families. See [inputs, internal units, rollback behavior and native verification](docs/structural-members.md).
+
+Native MEP and family relationships: `create_pipe` / `create_duct` preview and create a single straight rigid segment with explicit type/system/level IDs and dimensions in mm. `get_element_relationships` reads hosts, parent and nested families, groups/assemblies, inserts, optional dependents and adaptive points. See [inputs, bounds, rollback and test cases](docs/mep-and-relationships.md).
+
 | Component | This fork |
 |---|---|
 | Autodesk Revit | **2026** |
