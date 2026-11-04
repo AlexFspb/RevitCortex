@@ -148,4 +148,19 @@ public class MepCreationInputTests
         input["pipeTypeId"] = JToken.Parse("9223372036854775808");
         Assert.Throws<ArgumentException>(() => MepCreationInput.Parse(input, true));
     }
+
+    [Theory]
+    [InlineData("9223372036854775808")]
+    [InlineData("-9223372036854775809")]
+    public void BigIntegerCoordinatesAndDimensionsAreInputErrors(string jsonNumber)
+    {
+        foreach (var dimension in new[] { false, true })
+        {
+            var input = PipeInput();
+            if (dimension) input["diameterMm"] = JToken.Parse(jsonNumber);
+            else input["startPoint"] = new JArray(JToken.Parse(jsonNumber), 0, 0);
+            var error = Assert.Throws<ArgumentException>(() => MepCreationInput.Parse(input, true));
+            Assert.Contains("64-bit", error.Message);
+        }
+    }
 }

@@ -68,6 +68,32 @@ public class StructuralMemberInputTests
     }
 
     [Fact]
+    public void BaseTypeComparisonMatchesCaseInsensitiveSymbolResolution()
+    {
+        var a = Member("a"); var b = Member("b");
+        a["baseType"] = "W10x12"; b["baseType"] = "w10X12";
+        Assert.Equal(2, StructuralMemberInput.Parse(Request(a, b)).Members.Count);
+        b["baseType"] = "W12x14";
+        Assert.Throws<ArgumentException>(() => StructuralMemberInput.Parse(Request(a, b)));
+    }
+
+    [Theory]
+    [InlineData("9223372036854775808")]
+    [InlineData("-9223372036854775809")]
+    public void BigIntegerCoordinatesAndParametersBecomeValidationErrors(string jsonNumber)
+    {
+        foreach (var field in new[] { "p0_ft", "typeParams", "instanceParams" })
+        {
+            var member = Member();
+            member[field] = field == "p0_ft"
+                ? new JArray(JToken.Parse(jsonNumber), 0, 0)
+                : new JObject { ["Material"] = JToken.Parse(jsonNumber) };
+            var error = Assert.Throws<ArgumentException>(() => StructuralMemberInput.Parse(Request(member)));
+            Assert.Contains("64-bit", error.Message);
+        }
+    }
+
+    [Fact]
     public void Distinct64BitElementIdParametersCannotCollapseThroughDoublePrecision()
     {
         var a = Member("a"); var b = Member("b");

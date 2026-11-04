@@ -201,8 +201,13 @@ internal static class MepCreation
         foreach (var dimension in Dimensions(request))
         {
             var p = curve.get_Parameter(dimension.Id);
-            if (p?.StorageType != StorageType.Double || !Same(p.AsDouble(), MepCreationInput.Feet(dimension.ValueMm)))
-                throw new InvalidOperationException("The actual native segment size differs from the request.");
+            if (p?.StorageType != StorageType.Double)
+                throw new InvalidOperationException(MepSizeDiagnostic.Message(dimension.Id.ToString(), dimension.ValueMm, null,
+                    "required size parameter is unavailable or has the wrong storage type during verification"));
+            var actual = p.AsDouble();
+            if (!Same(actual, MepCreationInput.Feet(dimension.ValueMm)))
+                throw new InvalidOperationException(MepSizeDiagnostic.Message(dimension.Id.ToString(), dimension.ValueMm, actual,
+                    "actual size differs after regeneration/commit"));
         }
         if (!request.IsPipe)
         {
@@ -215,10 +220,18 @@ internal static class MepCreation
     {
         var p = curve.get_Parameter(id);
         var value = MepCreationInput.Feet(mm);
-        if (p?.StorageType != StorageType.Double) throw new InvalidOperationException($"Required size parameter {id} is unavailable.");
-        if (Same(p.AsDouble(), value)) return;
-        if (p.IsReadOnly || !p.Set(value) || !Same(p.AsDouble(), value))
-            throw new InvalidOperationException($"Revit did not set required size parameter {id} to the requested millimeter value.");
+        if (p?.StorageType != StorageType.Double)
+            throw new InvalidOperationException(MepSizeDiagnostic.Message(id.ToString(), mm, null,
+                "required size parameter is unavailable or has the wrong storage type"));
+        var actual = p.AsDouble();
+        if (Same(actual, value)) return;
+        if (p.IsReadOnly)
+            throw new InvalidOperationException(MepSizeDiagnostic.Message(id.ToString(), mm, actual, "parameter is read-only"));
+        var changed = p.Set(value);
+        actual = p.AsDouble();
+        if (!changed || !Same(actual, value))
+            throw new InvalidOperationException(MepSizeDiagnostic.Message(id.ToString(), mm, actual,
+                changed ? "Revit did not retain the requested size" : "Parameter.Set returned false"));
     }
     private static IEnumerable<(BuiltInParameter Id, double ValueMm)> Dimensions(MepCreationInput request)
     {

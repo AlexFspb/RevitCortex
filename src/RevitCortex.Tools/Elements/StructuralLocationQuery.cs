@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace RevitCortex.Tools.Elements;
@@ -69,6 +71,49 @@ internal sealed class StructuralLocationQuery
         if (token == null || token.Type == JTokenType.Null) return true;
         return token.Type == JTokenType.Integer && int.TryParse(token.ToString(), out value) && value >= min && value <= max;
     }
+}
+
+/// <summary>Admits bounded rows and guarantees progress for a row larger than an empty page.</summary>
+internal sealed class StructuralLocationPage
+{
+    private const int EnvelopeReserveBytes = 16_384;
+    private readonly int _limit;
+    private int _usedBytes = EnvelopeReserveBytes;
+    internal JArray Elements { get; } = new();
+    internal JArray Diagnostics { get; } = new();
+    internal int ProcessedCount { get; private set; }
+
+    internal StructuralLocationPage(int limit)
+    {
+        if (limit < 1 || limit > StructuralLocationQuery.MaxPageSize) throw new ArgumentOutOfRangeException(nameof(limit));
+        _limit = limit;
+    }
+
+    internal bool TryAdd(long elementId, JObject? row, JObject? diagnostic)
+    {
+        if (ProcessedCount >= _limit) return false;
+        var entry = row ?? diagnostic ?? throw new ArgumentException("A row or diagnostic is required.");
+        var bytes = Encoding.UTF8.GetByteCount(entry.ToString(Formatting.None));
+        if ((long)_usedBytes + bytes > StructuralLocationQuery.ResponseBudgetBytes)
+        {
+            if (ProcessedCount > 0) return false;
+            // Returning an unchanged cursor would let clients request this row forever.
+            // Advance over it with a small explicit diagnostic rather than exceeding the budget.
+            diagnostic = new JObject
+            {
+                ["elementId"] = elementId, ["code"] = "RowExceedsBudget",
+                ["message"] = "The element's row exceeds the response budget. Its details were omitted; the page cursor advanced past this element."
+            };
+            row = null;
+            bytes = Encoding.UTF8.GetByteCount(diagnostic.ToString(Formatting.None));
+        }
+        if (row != null) Elements.Add(row); else Diagnostics.Add(diagnostic!);
+        _usedBytes += bytes;
+        ProcessedCount++;
+        return true;
+    }
+
+    internal long NextOffset(int offset) => (long)offset + ProcessedCount;
 }
 
 internal static class StructuralLocationData

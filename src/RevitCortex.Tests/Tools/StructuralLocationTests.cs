@@ -1,4 +1,6 @@
 using Newtonsoft.Json.Linq;
+using Newtonsoft.Json;
+using System.Text;
 using RevitCortex.Tools.Elements;
 using Xunit;
 
@@ -82,5 +84,48 @@ public class StructuralLocationTests
         Assert.False((bool)geometry["canReconstruct"]!);
         Assert.Null(geometry["p0_ft"]);
         Assert.Null(geometry["p1_ft"]);
+    }
+
+    [Fact]
+    public void OversizedFirstUtf8RowBecomesDiagnosticAndAdvancesCursor()
+    {
+        var row = new JObject { ["elementId"] = 7, ["text"] = new string('Ж', 600_000) };
+        // Character count is below the byte budget, but its UTF-8 representation is not.
+        Assert.True(row.ToString(Formatting.None).Length < StructuralLocationQuery.ResponseBudgetBytes);
+        var page = new StructuralLocationPage(500);
+        Assert.True(page.TryAdd(7, row, null));
+        Assert.Empty(page.Elements);
+        Assert.Equal(1, page.ProcessedCount);
+        Assert.Equal(101, page.NextOffset(100));
+        Assert.Equal("RowExceedsBudget", (string?)page.Diagnostics[0]!["code"]);
+        Assert.Equal(7L, (long)page.Diagnostics[0]!["elementId"]!);
+        Assert.True(Encoding.UTF8.GetByteCount(page.Diagnostics.ToString(Formatting.None)) < 1000);
+    }
+
+    [Fact]
+    public void LaterOversizedRowStopsCurrentPageAndMakesProgressOnNextPage()
+    {
+        var large = new JObject { ["elementId"] = 2, ["text"] = new string('x', 1_000_000) };
+        var first = new StructuralLocationPage(500);
+        Assert.True(first.TryAdd(1, new JObject { ["elementId"] = 1 }, null));
+        Assert.False(first.TryAdd(2, large, null));
+        Assert.Single(first.Elements);
+        Assert.Equal(1, first.NextOffset(0));
+
+        var second = new StructuralLocationPage(500);
+        Assert.True(second.TryAdd(2, large, null));
+        Assert.Equal(2, second.NextOffset(1));
+        Assert.Equal("RowExceedsBudget", (string?)second.Diagnostics[0]!["code"]);
+    }
+
+    [Fact]
+    public void PageLimitCountsDiagnosticsAndUses64BitCursorArithmetic()
+    {
+        var page = new StructuralLocationPage(1);
+        Assert.True(page.TryAdd(5, null, new JObject { ["elementId"] = 5, ["code"] = "ElementNotFound" }));
+        Assert.False(page.TryAdd(6, new JObject { ["elementId"] = 6 }, null));
+        Assert.Equal(1, page.ProcessedCount);
+        Assert.Equal(2147483648L, page.NextOffset(int.MaxValue));
+        Assert.Single(page.Diagnostics);
     }
 }

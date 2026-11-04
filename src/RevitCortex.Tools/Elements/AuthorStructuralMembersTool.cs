@@ -26,7 +26,7 @@ public sealed class AuthorStructuralMembersTool : ICortexTool
     public string Category => "Elements";
     public bool RequiresDocument => true;
     public bool IsDynamic => false;
-    public string Description => "Preview or atomically create straight structural beams and vertical columns from loaded families. Coordinates and numeric parameters use Revit internal units. All changes roll back on any warning, error or verification mismatch.";
+    public string Description => "Preview or atomically create straight structural beams and vertical columns from loaded families. Coordinates and numeric parameters use Revit internal units. Beam axes and column constraints are verified; physical column Z is not independently measured. All changes roll back on any warning, error or verification mismatch.";
 
     public CortexResult<object> Execute(JObject input, CortexSession session)
     {
@@ -49,7 +49,7 @@ public sealed class AuthorStructuralMembersTool : ICortexTool
                     ["units"] = "Revit internal units; coordinates and lengths in feet",
                     ["previewOnly"] = true, ["nativePlacementVerified"] = false,
                     ["instanceParametersVerified"] = false,
-                    ["note"] = "Preview checks input, loaded types, levels and type parameter compatibility. Placement, instance parameters and native failures are verified only during the atomic write.",
+                    ["note"] = "Preview checks input, loaded types, levels and type parameter compatibility. Beam axes, column constraints, instance parameters and native failures are checked during the atomic write. Physical column Z is not independently measured.",
                     ["results"] = new JArray(plans.Select(p => new JObject
                     {
                         ["sourceId"] = p.Spec.SourceId, ["status"] = "planned", ["role"] = p.Spec.Role,
@@ -75,6 +75,8 @@ public sealed class AuthorStructuralMembersTool : ICortexTool
         catch (DocumentContextChangedException ex) { return ex.ToResult(); }
         catch (ArgumentException ex)
         {
+            // Write catches ordinary execution errors, but its constructors/Dispose can still throw here.
+            // Preserve the conservative unknown-outcome contract after entry into Write.
             return CortexResult<object>.Fail(writeEntered ? CortexErrorCode.TransactionFailed : CortexErrorCode.InvalidInput, Bound(ex.Message),
                 suggestion: writeEntered ? "Model outcome is unknown. Verify model state before issuing another request; do not repeat automatically." :
                     "Inspect loaded family types and parameter names, then run dryRun=true. Coordinates and numeric parameter values must use Revit internal units.",
@@ -120,8 +122,7 @@ public sealed class AuthorStructuralMembersTool : ICortexTool
             }
             var low = Math.Min(member.P0[2], member.P1[2]); var high = Math.Max(member.P0[2], member.P1[2]);
             var baseLevel = member.LevelName == null ? LevelFor(levels, low) :
-                levels.SingleOrDefault(l => l.Name.Equals(member.LevelName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"{member.SourceId}: level '{member.LevelName}' was not found.");
+                levels[StructuralLevelSelection.NamedIndex(levels.Select(l => l.Name).ToArray(), member.LevelName, member.SourceId)];
             result.Add(new PlanEntry(member, template, target, baseLevel, LevelFor(levels, high)));
         }
         return result;
@@ -151,15 +152,21 @@ public sealed class AuthorStructuralMembersTool : ICortexTool
                 ToolRequestLifetime.Current?.Expiration.ThrowIfCancellationRequested();
                 sourceId = plan.Spec.SourceId;
                 var symbol = plan.Target;
+                var typeNeedsRegeneration = false;
                 if (symbol == null && !createdTypes.TryGetValue(plan.Spec.TypeKey, out symbol))
                 {
                     symbol = plan.Template.Duplicate(plan.Spec.TypeName) as FamilySymbol
                         ?? throw new InvalidOperationException("Revit did not duplicate the requested family type.");
                     Apply(symbol, plan.Spec.TypeParams);
                     createdTypes.Add(plan.Spec.TypeKey, symbol);
+                    typeNeedsRegeneration = true;
                 }
-                if (!symbol.IsActive) symbol.Activate();
-                doc.Regenerate();
+                if (!symbol.IsActive)
+                {
+                    symbol.Activate();
+                    typeNeedsRegeneration = true;
+                }
+                if (typeNeedsRegeneration) doc.Regenerate();
                 var instance = Place(doc, plan, symbol);
                 Apply(instance, plan.Spec.InstanceParams);
                 instance.Pinned = request.Pin;
@@ -289,14 +296,19 @@ public sealed class AuthorStructuralMembersTool : ICortexTool
                 throw new InvalidOperationException($"{m.SourceId}: actual column position or level constraints differ from the request.");
         }
     }
-    private static JObject Receipt(PlanEntry plan, FamilyInstance instance) => new()
+    private static JObject Receipt(PlanEntry plan, FamilyInstance instance)
     {
-        ["sourceId"] = plan.Spec.SourceId, ["status"] = "created", ["elementId"] = instance.Id.Value,
-        ["uniqueId"] = instance.UniqueId, ["family"] = plan.Spec.Family, ["typeName"] = plan.Spec.TypeName,
-        ["placementVerified"] = true,
-        ["verificationBasis"] = plan.Spec.Role == "beam" ? "actual LocationCurve line endpoints" : "LocationPoint XY and base/top level constraints; not solid extents",
-        ["requestedP0_ft"] = new JArray(plan.Spec.P0), ["requestedP1_ft"] = new JArray(plan.Spec.P1)
-    };
+        var receipt = new JObject
+        {
+            ["sourceId"] = plan.Spec.SourceId, ["status"] = "created", ["elementId"] = instance.Id.Value,
+            ["uniqueId"] = instance.UniqueId, ["family"] = plan.Spec.Family, ["typeName"] = plan.Spec.TypeName,
+            ["requestedP0_ft"] = new JArray(plan.Spec.P0), ["requestedP1_ft"] = new JArray(plan.Spec.P1)
+        };
+        var column = plan.Spec.Role == "column";
+        StructuralColumnConstraintData.ApplyVerification(receipt, column);
+        if (column) receipt["columnConstraints"] = StructuralColumnConstraints.Read(instance.Document, instance);
+        return receipt;
+    }
     private static void VerifyParameter(Element element, JProperty property)
     {
         if (!Matches(Parameter(element, property.Name), property.Value))
@@ -308,7 +320,8 @@ public sealed class AuthorStructuralMembersTool : ICortexTool
         if (found.Length > 1) throw new ArgumentException($"{member.SourceId}: ambiguous {kind}; family/type names must uniquely identify a symbol.");
         return found.FirstOrDefault();
     }
-    private static Level LevelFor(Level[] levels, double z) => levels.LastOrDefault(l => l.ProjectElevation <= z + StructuralMemberInput.GeometryToleranceFt) ?? levels[0];
+    private static Level LevelFor(Level[] levels, double z) =>
+        levels[StructuralLevelSelection.AtOrBelowIndex(levels.Select(l => l.ProjectElevation).ToArray(), z)];
     private static Parameter Parameter(Element element, string name)
     {
         var found = element.GetParameters(name);

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -42,7 +43,7 @@ internal sealed class StructuralMemberInput
             if (Distance(member.P0, member.P1) <= GeometryToleranceFt)
                 throw new ArgumentException($"{member.SourceId}: endpoints must be distinct.");
             if (types.TryGetValue(member.TypeKey, out var previous) &&
-                (previous.Role != member.Role || previous.BaseType != member.BaseType || !SameParameters(previous.TypeParams, member.TypeParams)))
+                (previous.Role != member.Role || !previous.BaseType.Equals(member.BaseType, StringComparison.OrdinalIgnoreCase) || !SameParameters(previous.TypeParams, member.TypeParams)))
                 throw new ArgumentException($"{member.SourceId}: requested family/type has conflicting base type, role or typeParams in this batch.");
             types[member.TypeKey] = member;
             members.Add(member);
@@ -77,7 +78,7 @@ internal sealed class StructuralMemberInput
     {
         if (item[name] is not JArray point || point.Count != 3 || point.Any(v => !IsNumber(v)))
             throw new ArgumentException($"{name} must contain three finite numbers in Revit internal feet.");
-        var values = point.Select(v => v.Value<double>()).ToArray();
+        var values = point.Select(v => FiniteNumber(v, name)).ToArray();
         if (values.Any(v => !double.IsFinite(v) || Math.Abs(v) > 1e7))
             throw new ArgumentException($"{name} contains an invalid or out-of-range coordinate.");
         return values;
@@ -95,10 +96,23 @@ internal sealed class StructuralMemberInput
             {
                 if (p.Value.Value<string>()!.Length > 1024) throw new ArgumentException($"{p.Name}: parameter text exceeds 1024 characters.");
             }
-            else if (!IsNumber(p.Value) || !double.IsFinite(p.Value.Value<double>()))
-                throw new ArgumentException($"{p.Name}: parameter values must be finite numbers or strings; use integer 0/1 for yes/no parameters.");
+            else
+                _ = FiniteNumber(p.Value, p.Name);
         }
         return (JObject)parameters.DeepClone();
+    }
+    private static double FiniteNumber(JToken token, string name)
+    {
+        if (!IsNumber(token))
+            throw new ArgumentException($"{name}: use a finite number or string; use integer 0/1 for yes/no parameters.");
+        // Newtonsoft represents larger integers as BigInteger. Reject them as input
+        // errors before Value<double>() can throw or an ElementId can lose precision.
+        if (token.Type == JTokenType.Integer && !long.TryParse(token.ToString(Formatting.None),
+                NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+            throw new ArgumentException($"{name}: integer values must fit the signed 64-bit range.");
+        var value = token.Value<double>();
+        if (!double.IsFinite(value)) throw new ArgumentException($"{name}: numeric values must be finite.");
+        return value;
     }
     private static void RejectUnknown(JObject input, params string[] allowed)
     {

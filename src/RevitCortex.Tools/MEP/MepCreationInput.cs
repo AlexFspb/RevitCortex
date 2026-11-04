@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 
@@ -65,6 +66,9 @@ internal sealed record MepCreationInput(bool IsPipe, long SystemTypeId, long Typ
     {
         if (value.Type != JTokenType.Float && value.Type != JTokenType.Integer)
             throw new ArgumentException($"{name} requires finite numeric values, not text or booleans.");
+        if (value.Type == JTokenType.Integer && !long.TryParse(value.ToString(Newtonsoft.Json.Formatting.None),
+                NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+            throw new ArgumentException($"{name}: integer values must fit the signed 64-bit range.");
         var parsed = value.Value<double>();
         if (!double.IsFinite(parsed)) throw new ArgumentException($"{name} requires finite numeric values.");
         return parsed;

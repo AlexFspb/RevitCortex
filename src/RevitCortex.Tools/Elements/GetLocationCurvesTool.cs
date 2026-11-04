@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using Autodesk.Revit.DB;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using RevitCortex.Core.Results;
 using RevitCortex.Core.Session;
@@ -39,11 +37,8 @@ public sealed class GetLocationCurvesTool : ICortexTool
             var ids = query.ElementIds ?? new FilteredElementCollector(doc)
                 .WherePasses(new ElementMulticategoryFilter(categories)).WhereElementIsNotElementType()
                 .ToElementIds().Select(id => id.Value).OrderBy(id => id).ToArray();
-            var elements = new JArray();
-            var diagnostics = new JArray();
+            var page = new StructuralLocationPage(query.Limit);
             var typeCache = new Dictionary<long, JObject>();
-            var usedBytes = 16_384; // Reserve room for pagination and diagnostic metadata.
-            var processed = 0;
             foreach (var id in ids.Skip(query.Offset).Take(query.Limit))
             {
                 JObject? row = null;
@@ -60,21 +55,17 @@ public sealed class GetLocationCurvesTool : ICortexTool
                 }
                 catch (Exception ex)
                 { diagnostic = Diagnostic(id, "ElementReadFailed", ex.Message); }
-                var bytes = Encoding.UTF8.GetByteCount((row ?? diagnostic!).ToString(Formatting.None));
-                if (usedBytes + bytes > StructuralLocationQuery.ResponseBudgetBytes) break;
-                if (row != null) elements.Add(row); else diagnostics.Add(diagnostic!);
-                usedBytes += bytes;
-                processed++;
+                if (!page.TryAdd(id, row, diagnostic)) break;
             }
-            var next = (long)query.Offset + processed;
+            var next = page.NextOffset(query.Offset);
             var hasMore = next < ids.Length;
             return CortexResult<object>.Ok(new JObject
             {
                 ["coordinatesUnit"] = "ft", ["coordinateSystem"] = "Revit internal model coordinates",
                 ["typeParameterValuesUnit"] = "Revit internal units; see dataType on each parameter. Not all values are lengths.",
-                ["totalCount"] = ids.Length, ["offset"] = query.Offset, ["processedCount"] = processed,
-                ["count"] = elements.Count, ["nextOffset"] = hasMore ? JToken.FromObject(next) : JValue.CreateNull(),
-                ["truncated"] = hasMore, ["elements"] = elements, ["diagnostics"] = diagnostics,
+                ["totalCount"] = ids.Length, ["offset"] = query.Offset, ["processedCount"] = page.ProcessedCount,
+                ["count"] = page.Elements.Count, ["nextOffset"] = hasMore ? JToken.FromObject(next) : JValue.CreateNull(),
+                ["truncated"] = hasMore, ["elements"] = page.Elements, ["diagnostics"] = page.Diagnostics,
                 ["paginationNote"] = query.ElementIds == null
                     ? "Offsets refer to sorted matching IDs. Revalidate the document and restart pagination if the model changes."
                     : "Offsets refer to sorted unique requested IDs, including missing and excluded IDs."
@@ -113,7 +104,23 @@ public sealed class GetLocationCurvesTool : ICortexTool
                         Coordinates(arc.Evaluate(0.5, true)), Coordinates(arc.Center), arc.Radius, Coordinates(arc.Normal));
                 else geometry = StructuralLocationData.Unsupported(curve.GetType().Name);
             }
-            else if (location is LocationPoint lp) geometry = StructuralLocationData.Point(Coordinates(lp.Point));
+            else if (location is LocationPoint lp)
+            {
+                geometry = StructuralLocationData.Point(Coordinates(lp.Point));
+                if (row.Value<string>("category") == "StructuralColumns")
+                {
+                    try { row["columnConstraints"] = StructuralColumnConstraints.Read(doc, element); }
+                    catch (Exception ex)
+                    {
+                        row["columnConstraints"] = new JObject
+                        {
+                            ["status"] = "error", ["physicalZVerified"] = false,
+                            ["basis"] = "constraint-derived, not physical geometry"
+                        };
+                        diagnostics.Add(new JObject { ["code"] = "ColumnConstraintsReadFailed", ["message"] = Clip(ex.Message) });
+                    }
+                }
+            }
             else geometry = StructuralLocationData.Unsupported("none");
             foreach (var property in geometry.Properties()) row[property.Name] = property.Value;
         }
